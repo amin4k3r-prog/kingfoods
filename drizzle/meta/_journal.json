@@ -1,0 +1,55 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1790160952406,
+      "tag": "0000_shiny_whirlwind",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1790163647217,
+      "tag": "0001_past_psynapse",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1790190287525,
+      "tag": "0002_ordinary_bullseye",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1790246775081,
+      "tag": "0003_sloppy_blazing_skull",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1790250927000,
+      "tag": "0004_old_captain_america",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1790343117142,
+      "tag": "0005_odd_stephen_strange",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1790344883021,
+      "tag": "0006_red_ricochet",
+      "breakpoints": true
+    }
+  ]
+}

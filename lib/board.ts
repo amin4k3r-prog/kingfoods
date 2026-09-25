@@ -1,0 +1,8 @@
+export type Card={id:string;title:string;notes:string;due:string;amount:number;kind:string;paid:number;created:string;position?:number;manual_lane?:string|null;manual_date?:string|null;document?:string|null;customer?:string|null;charge_type?:string|null;seller?:string|null;balance_display?:string|null;customer_id?:string|null;archived_at?:string|null;policy_stage?:string|null};
+export type Customer={id:string;tax_id:string;name:string;payer_name:string;phone:string;payer_contact:string;delivery_address:string;address_confirmed:number;photo_url:string|null;risk_class:string|null;portfolio_curve:string|null;customer_code:string;seller_name:string|null;last_sale_date:string|null;address:string|null;city:string|null;category:string|null;credit_limit:number;credit_term_days:number;created_at:string;updated_at:string};
+export type TitleEvent={id:string;card_id:string;event_type:string;stage:string;note:string;created_at:string};
+export type Attachment={id:string;card_id:string;name:string;size:number};
+export const today=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'America/Sao_Paulo',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+export const daysLate=(due:string,now=today())=>Math.round((Date.parse(now+'T12:00:00Z')-Date.parse(due+'T12:00:00Z'))/86400000);
+export const money=(n:number)=>new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(n/100);
+export function lane(c:Card,days:number[],now=today()){if(c.paid)return 'paid';if(c.manual_date===now&&c.manual_lane&&['future','0',...days.map(String)].includes(c.manual_lane))return c.manual_lane;const d=daysLate(c.due,now);if(d<0)return 'future';if(d===0)return '0';return String([...days].sort((a,b)=>b-a).find(n=>n<=d)??1);}
