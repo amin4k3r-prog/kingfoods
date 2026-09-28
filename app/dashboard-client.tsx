@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Plus,
   ArrowUpRight,
@@ -23,8 +23,8 @@ import {
   Users,
   Settings,
   LogOut,
-  ChevronDown,
-  ChevronUp,
+  Maximize2,
+  Minimize2,
 } from "lucide-react";
 import {
   Dialog,
@@ -143,9 +143,9 @@ async function importApi(body: unknown) {
 }
 export default function Home({user}:{user:AuthUser}) {
   const [view, setView] = useState("tasks");
-  const [expandedColumns, setExpandedColumns] = useState<Set<string>>(
-    () => new Set(),
-  );
+  const [maximizedLabel, setMaximizedLabel] = useState<string | null>(null);
+  const [columnMaximized, setColumnMaximized] = useState(false);
+  const maximizeTrigger = useRef<HTMLButtonElement | null>(null);
   const [cards, setCards] = useState<Card[]>([]),
     [customers, setCustomers] = useState<Customer[]>([]),
     [analysisOverdue, setAnalysisOverdue] = useState(0),
@@ -484,6 +484,12 @@ export default function Home({user}:{user:AuthUser}) {
       };
     }),
   ];
+  const maximizedColumn = kanbanColumns.find(column => column.label === maximizedLabel);
+  function maximizeColumn(label: string, trigger: HTMLButtonElement) {
+    maximizeTrigger.current = trigger;
+    setMaximizedLabel(label);
+    setColumnMaximized(true);
+  }
   function renderCard(c: Card) {
     const customer = c.customer_id ? customerById.get(c.customer_id) : null;
     return (
@@ -808,11 +814,10 @@ export default function Home({user}:{user:AuthUser}) {
                 </p>
                 <ScrollableBoard>
                   {kanbanColumns.map((column) => {
-                    const expanded = expandedColumns.has(column.label);
-                    const shownCards = expanded ? column.cards : column.cards.slice(0, 1);
+                    const shownCards = column.cards.slice(0, 1);
                     return (
                       <section
-                        className={`column ${column.tone} ${stageTone(column.day)} ${expanded ? "is-expanded" : ""}`}
+                        className={`column ${column.tone} ${stageTone(column.day)}`}
                         key={column.label}
                       >
                         <div className="column-header">
@@ -822,6 +827,7 @@ export default function Home({user}:{user:AuthUser}) {
                           </h3>
                           <div className="column-tools">
                             <b>{column.cards.length}</b>
+                            <button type="button" title="Maximizar coluna" aria-label={`Maximizar coluna ${column.label}`} aria-haspopup="dialog" onClick={e => maximizeColumn(column.label, e.currentTarget)}><Maximize2 size={16} /></button>
                             <button
                               aria-label={`Adicionar em ${column.label}`}
                               onClick={() => open(undefined, column.day)}
@@ -844,33 +850,7 @@ export default function Home({user}:{user:AuthUser}) {
                             </div>
                           )}
                         </div>
-                        {column.cards.length > 1 && (
-                          <button
-                            className="expand-column"
-                            aria-expanded={expanded}
-                            onClick={() =>
-                              setExpandedColumns((current) => {
-                                const next = new Set(current);
-                                expanded
-                                  ? next.delete(column.label)
-                                  : next.add(column.label);
-                                return next;
-                              })
-                            }
-                          >
-                            {expanded ? (
-                              <>
-                                <ChevronUp size={15} />
-                                Recolher
-                              </>
-                            ) : (
-                              <>
-                                <ChevronDown size={15} />
-                                Ver mais {column.cards.length - 1}
-                              </>
-                            )}
-                          </button>
-                        )}
+                        {column.cards.length > 1 && <button type="button" className="maximize-column-button" aria-haspopup="dialog" onClick={e => maximizeColumn(column.label, e.currentTarget)}><Maximize2 size={16} /> Ver todos os {column.cards.length} cartões</button>}
                         <button
                           className="add-card"
                           onClick={() => open(undefined, column.day)}
@@ -970,6 +950,25 @@ export default function Home({user}:{user:AuthUser}) {
           </div>
         </Tabs>
       </main>
+      <Dialog open={columnMaximized} onOpenChange={setColumnMaximized}>
+        <DialogContent className={`premium-board column-maximized ${maximizedColumn ? stageTone(maximizedColumn.day) : ""}`} showCloseButton={false} onCloseAutoFocus={event => { event.preventDefault(); maximizeTrigger.current?.focus(); }}>
+          {maximizedColumn && <>
+            <div className="maximized-header">
+              <div>
+                <DialogTitle className="maximized-title">{stageTitle(maximizedColumn.day)}</DialogTitle>
+                <DialogDescription className="maximized-description"><span>{maximizedColumn.label}</span> · {maximizedColumn.cards.length} cartões{normalizedQuery ? " encontrados na busca" : " nesta etapa"}</DialogDescription>
+              </div>
+              <button type="button" className="secondary-button" onClick={() => setColumnMaximized(false)}><Minimize2 size={18} /> Voltar ao quadro</button>
+            </div>
+            <div className="maximized-scroll">
+              <div className="maximized-card-grid">
+                {maximizedColumn.cards.map(card => card.kind === "title" ? renderTitleTask(card) : renderCard(card))}
+              </div>
+              {!maximizedColumn.cards.length && <div className="empty-column"><CalendarDays size={30} /><p>Nenhum cartão nesta etapa.</p></div>}
+            </div>
+          </>}
+        </DialogContent>
+      </Dialog>
       <Dialog open={columnOpen} onOpenChange={value => { if (!columnBusy) setColumnOpen(value); }}>
         <DialogContent className="editor">
           <DialogTitle>Nova coluna D+</DialogTitle>
