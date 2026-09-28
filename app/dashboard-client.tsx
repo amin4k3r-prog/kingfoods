@@ -73,6 +73,7 @@ import { CustomerWallet } from "@/components/customer-wallet";
 import { AnalysisWorkspace } from "@/components/analysis-workspace";
 import { UserSettings } from "@/components/user-settings";
 import type { AuthUser } from "@/lib/auth";
+import { readApiResponse } from "@/lib/api-response";
 const blank = () => ({
   id: "",
   title: "",
@@ -125,10 +126,8 @@ async function api(body: unknown) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  const d = (await r.json()) as any;
   if (r.status === 401) {window.location.assign("/entrar");throw new Error("Sessão encerrada.");}
-  if (!r.ok) throw new Error(d.error);
-  return d;
+  return readApiResponse<any>(r);
 }
 async function importApi(body: unknown) {
   const r = await fetch("/api/import", {
@@ -136,10 +135,8 @@ async function importApi(body: unknown) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  const d = (await r.json()) as any;
   if (r.status === 401) {window.location.assign("/entrar");throw new Error("Sessão encerrada.");}
-  if (!r.ok) throw new Error(d.error);
-  return d;
+  return readApiResponse<any>(r);
 }
 export default function Home({user}:{user:AuthUser}) {
   const [view, setView] = useState("tasks");
@@ -180,9 +177,8 @@ export default function Home({user}:{user:AuthUser}) {
   const refresh = useCallback(async () => {
     try {
       const r = await fetch("/api/board");
-      const d = (await r.json()) as any;
       if (r.status === 401) {window.location.assign("/entrar");throw new Error("Sessão encerrada.");}
-  if (!r.ok) throw new Error(d.error);
+      const d = await readApiResponse<any>(r);
       setCards(d.cards);
       setSavedColumns(d.columns ?? []);
       setCustomers(d.customers ?? []);
@@ -199,8 +195,15 @@ export default function Home({user}:{user:AuthUser}) {
   }, []);
   useEffect(() => {
     refresh().catch(() => {});
-    const t = setInterval(() => refresh().catch(() => {}), 30000);
-    return () => clearInterval(t);
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") refresh().catch(() => {});
+    };
+    const t = setInterval(refreshWhenVisible, 120000);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
   }, [refresh]);
   useEffect(() => {
     const ctx = (document as any).modelContext;
