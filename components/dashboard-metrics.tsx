@@ -23,18 +23,18 @@ function Sparkline({history,metric}:{history:MetricPoint[]|null;metric:'open'|'r
 
 export function DashboardMetrics({cards,date,loaded,history}:{cards:Card[];date:string;loaded:boolean;history:MetricPoint[]|null}) {
   const totals=useMemo(()=>dashboardMetrics(cards,date),[cards,date]);
-  const total=totals.open.amount+totals.resolved.amount;
+  const total=totals.open.amount+totals.resolved.amount+totals.overdue.amount;
   const items=[
-    {key:'open',label:'Em Aberto',icon:Wallet,data:totals.open,caption:'títulos em aberto',note:'A vencer e vencidos'},
+    {key:'open',label:'Em Aberto',icon:Wallet,data:totals.open,caption:'títulos em aberto',note:'A vencer · lembrete de vencimento · vence hoje'},
     {key:'resolved',label:'Resolvidos',icon:CheckCheck,data:totals.resolved,caption:'títulos resolvidos',note:'Pagamentos confirmados'},
     {key:'overdue',label:'Vencidos',icon:Clock3,data:totals.overdue,caption:'títulos vencidos',note:'Vencidos e ainda não pagos'},
   ];
   return <section className="dashboard-metric-grid" aria-label="Resumo financeiro dos títulos" aria-busy={!loaded}>
-    {items.map(({key,label,icon:Icon,data,caption,note})=>{const base=key==='overdue'?totals.open.amount:total;const percentage=base>0?data.amount/base*100:0;return <article className={`dashboard-metric-card metric-${key}`} key={key}>
+    {items.map(({key,label,icon:Icon,data,caption,note})=>{const percentage=total>0?data.amount/total*100:0;return <article className={`dashboard-metric-card metric-${key}`} key={key}>
       <header><h2>{label}</h2><span className="dashboard-metric-icon"><Icon size={23} aria-hidden="true"/></span></header>
       <strong className="dashboard-metric-value">{loaded?money(data.amount):'—'}</strong>
       <div className="dashboard-metric-count"><b>{loaded?data.count.toLocaleString('pt-BR'):'—'}</b><span>{caption}</span></div>
-      <div className="metric-percentage"><strong>{loaded?percentage.toLocaleString('pt-BR',{maximumFractionDigits:1})+'%':'—'}</strong><span>{key==='overdue'?'do valor em aberto':'do valor total dos títulos'}</span></div>
+      <div className="metric-percentage"><strong>{loaded?percentage.toLocaleString('pt-BR',{maximumFractionDigits:1})+'%':'—'}</strong><span>do valor total dos títulos</span></div>
       {loaded&&<Sparkline history={history} metric={key as 'open'|'resolved'|'overdue'}/>}
       <p>{loaded?note:'Carregando títulos…'}</p>
     </article>})}
