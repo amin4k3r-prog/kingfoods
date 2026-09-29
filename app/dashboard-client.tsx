@@ -145,6 +145,8 @@ export default function Home({user}:{user:AuthUser}) {
   const [customerSearch,setCustomerSearch]=useState('');
   const [customerOptions,setCustomerOptions]=useState<Customer[]>([]);
   const [customerSearchError,setCustomerSearchError]=useState('');
+  const [importLookupBusy,setImportLookupBusy]=useState(false);
+  const importLookupVersion=useRef(0);
   const [view, setView] = useState("tasks");
   const [maximizedLabel, setMaximizedLabel] = useState<string | null>(null);
   const [columnMaximized, setColumnMaximized] = useState(false);
@@ -322,18 +324,31 @@ export default function Home({user}:{user:AuthUser}) {
     }
   }
   async function readImportFile(file?: File) {
+    const lookupVersion=++importLookupVersion.current;
     setImportPreview(null);
     setImportLinkPage(0);
     setImportLinkOpen(null);
     setImportError("");
     if (!file) return;
+    setImportLookupBusy(true);
     setImportName(file.name);
     try {
       const text = decodeCsv(await file.arrayBuffer());
       await new Promise<void>((resolve) => setTimeout(resolve, 0));
-      setImportPreview(previewReceivablesCsv(text, cards, customers));
+      const initial=previewReceivablesCsv(text,cards,[]);
+      const candidates=new Map<string,{id:string;name:string;customer_code?:string|null;tax_id?:string}>();
+      const uniqueRows=[...new Map(initial.rows.map(row=>[JSON.stringify([row.customer_code,row.customer_names]),row])).values()];
+      for(let offset=0;offset<uniqueRows.length;offset+=20){
+        if(lookupVersion!==importLookupVersion.current)return;
+        const response=await fetch('/api/customers/lookup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rows:uniqueRows.slice(offset,offset+20).map(row=>({customer_code:row.customer_code,customer_names:row.customer_names}))})});
+        const result=await readApiResponse<{customers:{id:string;name:string;customer_code?:string|null;tax_id?:string}[]}>(response);
+        for(const customer of result.customers)candidates.set(customer.id,customer);
+      }
+      if(lookupVersion===importLookupVersion.current)setImportPreview(previewReceivablesCsv(text,cards,[...candidates.values()]));
     } catch (e) {
-      setImportError((e as Error).message || "Não foi possível ler este CSV.");
+      if(lookupVersion===importLookupVersion.current)setImportError((e as Error).message || "Não foi possível ler este CSV.");
+    } finally {
+      if(lookupVersion===importLookupVersion.current)setImportLookupBusy(false);
     }
   }
   async function importTitles() {
@@ -994,6 +1009,7 @@ export default function Home({user}:{user:AuthUser}) {
               }}
             />
           </label>
+          {importLookupBusy&&<p role="status">Consultando cadastros e vinculando os títulos…</p>}
           {importError && (
             <div className="error" role="alert">
               {importError}
