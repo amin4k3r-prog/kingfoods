@@ -1,16 +1,13 @@
 import {requireUser, audit} from '@/lib/auth';
 import {db,failure,sameOrigin} from '@/lib/server';
-import {summary,schedule,paginateAnalyses,type AnalysisCustomer,type AnalysisRecord} from '@/lib/analysis';
+import {summary,schedule,analysisQueueSql,analysisSearchSql,type AnalysisCustomer,type AnalysisRecord} from '@/lib/analysis';
 import {today} from '@/lib/board';
 
 const outcomes=['manter','aprovar','reduzir','suspender','sem_credito'] as const;
 const labels:Record<string,string>={manter:'Condições mantidas',aprovar:'Crédito aprovado',reduzir:'Limite reduzido',suspender:'Prazo suspenso',sem_credito:'Sem crédito'};
-type EventRow={id:string;customer_id:string;analysis_id:string|null;event_type:string;from_state:string|null;to_state:string;responsible:string;note:string;occurred_at:string};
-const chunks=<T,>(items:T[],size:number)=>Array.from({length:Math.ceil(items.length/size)},(_,i)=>items.slice(i*size,(i+1)*size));
-
 export async function GET(request:Request){try{
-    const authUser=await requireUser(request);
- const d=db();const requested=new URL(request.url).searchParams.get('customer_id');
+ await requireUser(request);
+ const d=db(),params=new URL(request.url).searchParams,day=today();const requested=params.get('customer_id');
  if(requested){
   const [customer,events,records]=await Promise.all([
    d.prepare('SELECT id,name FROM customers WHERE id=?').bind(requested).first(),
@@ -20,18 +17,19 @@ export async function GET(request:Request){try{
   if(!customer)return Response.json({error:'Cliente não encontrado.'},{status:404});
   return Response.json({events:events.results,analyses:records.results});
  }
- const [customerRows,recordRows,eventRows]=await Promise.all([
-  d.prepare('SELECT id,name,customer_code,tax_id,phone,payer_name,payer_contact,delivery_address,address,city,category,seller_name,risk_class,portfolio_curve,credit_limit,credit_term_days,created_at FROM customers ORDER BY name COLLATE NOCASE').all(),
-  d.prepare('SELECT * FROM credit_analyses ORDER BY started_at DESC,id DESC').all(),
-  d.prepare('SELECT customer_id,to_state FROM analysis_events ORDER BY occurred_at DESC,id DESC').all()
- ]);
- const records=new Map<string,AnalysisRecord[]>();for(const item of recordRows.results as AnalysisRecord[])records.set(item.customer_id,[...(records.get(item.customer_id)??[]),item]);
- const latest=new Map<string,string>();for(const item of eventRows.results as Pick<EventRow,'customer_id'|'to_state'>[])if(!latest.has(item.customer_id))latest.set(item.customer_id,item.to_state);
- const customers=(customerRows.results as AnalysisCustomer[]).map(customer=>({...customer,...summary(customer,records.get(customer.id)??[])}));
- const changes=customers.filter(customer=>latest.get(customer.id)!==customer.state).map(customer=>d.prepare('INSERT OR IGNORE INTO analysis_events(id,customer_id,analysis_id,event_type,from_state,to_state,responsible,note,occurred_at) VALUES(?,?,NULL,?,?,?,?,?,?)').bind(`${customer.id}:state:${today()}:${customer.state}`,customer.id,'state',latest.get(customer.id)??null,customer.state,'Sistema',customer.alert?'Revisão vencida; aumento automático de limite e prazo bloqueado.':'Estado recalculado pela agenda.',new Date().toISOString()));
- for(const batch of chunks(changes,50))await d.batch(batch);
- if(new URL(request.url).searchParams.has('summary'))return Response.json({overdue:customers.filter(customer=>customer.alert).length});
- return Response.json(paginateAnalyses(customers,new URL(request.url).searchParams),{headers:{'Cache-Control':'private, no-store'}});
+ const totals=await d.prepare(`${analysisQueueSql} SELECT COUNT(*) AS totalCustomers,COALESCE(SUM(state='overdue'),0) AS overdue,COALESCE(SUM(next_analysis < ?1),0) AS alerts FROM queue`).bind(day).first<{totalCustomers:number;overdue:number;alerts:number}>();
+ if(params.has('summary'))return Response.json({overdue:Number(totals?.alerts??0)},{headers:{'Cache-Control':'private, no-store'}});
+ const search=analysisSearchSql(params);
+ const count=search.where?await d.prepare(`${analysisQueueSql} SELECT COUNT(*) AS total FROM queue ${search.where}`).bind(day,...search.values).first<{total:number}>():{total:Number(totals?.totalCustomers??0)};
+ const total=Number(count?.total??0),pages=Math.max(1,Math.ceil(total/10));
+ const page=Math.max(1,Math.min(pages,Math.floor(Number(params.get('page'))||1)));
+ const customerRows=await d.prepare(`${analysisQueueSql} SELECT * FROM queue ${search.where} ORDER BY CASE state WHEN 'overdue' THEN 0 WHEN 'awaiting_approval' THEN 1 WHEN 'in_progress' THEN 2 WHEN 'soon' THEN 3 WHEN 'pending_first' THEN 4 WHEN 'unclassified' THEN 5 ELSE 6 END,COALESCE(next_analysis,'9999'),name COLLATE NOCASE,id LIMIT 10 OFFSET ?`).bind(day,...search.values,(page-1)*10).all();
+ const profiles=customerRows.results as (AnalysisCustomer&{open_id:string|null;approved_id:string|null})[];
+ const recordIds=profiles.flatMap(c=>[c.open_id,c.approved_id]).filter((id):id is string=>!!id);
+ const recordRows=recordIds.length?await d.prepare(`SELECT * FROM credit_analyses WHERE id IN (${recordIds.map(()=>'?').join(',')}) ORDER BY started_at DESC,id DESC`).bind(...recordIds).all():{results:[]};
+ const records=recordRows.results as AnalysisRecord[];
+ const customers=profiles.map(customer=>({...customer,...summary(customer,records.filter(record=>record.customer_id===customer.id),day)}));
+ return Response.json({customers,page,pages,total,totalCustomers:Number(totals?.totalCustomers??0),overdue:Number(totals?.overdue??0)},{headers:{'Cache-Control':'private, no-store'}});
 }catch(e){return failure(e);}}
 
 export async function POST(request:Request){try{
