@@ -30,3 +30,16 @@ export function summary(customer:AnalysisCustomer,records:AnalysisRecord[],day=t
  const state:AnalysisState=!rule?'unclassified':open?.status==='awaiting_approval'?'awaiting_approval':open?'in_progress':(daysRemaining??0)<0?'overdue':(daysRemaining??0)<=30?'soon':last?'current':'pending_first';
  return {state,last_analysis:lastDate,next_analysis:nextDue,days_remaining:daysRemaining,mode:rule?.mode??null,period_months:rule?.months??null,open_analysis:open,latest_analysis:last,alert:daysRemaining!==null&&daysRemaining<0,automatic_increase_blocked:customer.risk_class==='E'||(daysRemaining!==null&&daysRemaining<0)};
 }
+
+export function paginateAnalyses<T extends AnalysisCustomer & ReturnType<typeof summary>>(customers:T[],params:URLSearchParams){
+ const normalize=(value:string)=>value.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleLowerCase('pt-BR').trim();
+ const query=normalize((params.get('q')??'').slice(0,200)),filter=params.get('state')??'all';
+ const digits=query.replace(/\D/g,'');
+ const priority:Record<string,number>={overdue:0,awaiting_approval:1,in_progress:2,soon:3,pending_first:4,unclassified:5,current:6};
+ const filtered=customers.filter(item=>(filter==='all'||item.state===filter)&&(!query||normalize(`${item.name} ${item.customer_code} ${item.tax_id} ${item.risk_class??''}`).includes(query)||(/^[\d\s./-]+$/.test(query)&&!!digits&&item.tax_id.replace(/\D/g,'').includes(digits))));
+ filtered.sort((a,b)=>(priority[a.state]??9)-(priority[b.state]??9)||(a.next_analysis??'9999').localeCompare(b.next_analysis??'9999')||a.name.localeCompare(b.name,'pt-BR')||a.id.localeCompare(b.id));
+ const pages=Math.max(1,Math.ceil(filtered.length/10));
+ const requested=Number(params.get('page'))||1;
+ const page=Math.max(1,Math.min(pages,Math.floor(requested)));
+ return {customers:filtered.slice((page-1)*10,page*10),page,pages,total:filtered.length,totalCustomers:customers.length,overdue:customers.filter(item=>item.state==='overdue').length};
+}
