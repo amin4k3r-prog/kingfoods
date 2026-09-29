@@ -3,6 +3,8 @@ export type ReceivableImportRow = {
   document: string;
   customer: string;
   customer_id: string | null;
+  customer_code?: string;
+  customer_names?: string[];
   due: string;
   amount: number;
   balance_display: string;
@@ -286,6 +288,8 @@ export function previewReceivablesCsv(
       document,
       customer,
       customer_id: customerId,
+      customer_code: code,
+      customer_names: candidateNames,
       due,
       amount,
       balance_display: rawBalance,
