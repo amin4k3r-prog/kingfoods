@@ -70,6 +70,7 @@ import { TITLE_EVENT_OPTIONS } from "@/lib/policy";
 import { collectionStage, columnDays, inDayColumn } from "@/lib/columns";
 import { ScrollableBoard } from "@/components/scrollable-board";
 import { DashboardMetrics } from "@/components/dashboard-metrics";
+import type {MetricPoint} from '@/lib/metric-history';
 import { CustomerWallet } from "@/components/customer-wallet";
 import { AnalysisWorkspace } from "@/components/analysis-workspace";
 import { UserSettings } from "@/components/user-settings";
@@ -140,6 +141,7 @@ async function importApi(body: unknown) {
   return readApiResponse<any>(r);
 }
 export default function Home({user}:{user:AuthUser}) {
+  const [metricHistory,setMetricHistory]=useState<MetricPoint[]|null>(null);
   const [customerSearch,setCustomerSearch]=useState('');
   const [customerOptions,setCustomerOptions]=useState<Customer[]>([]);
   const [customerSearchError,setCustomerSearchError]=useState('');
@@ -195,6 +197,7 @@ export default function Home({user}:{user:AuthUser}) {
       if (r.status === 401) {window.location.assign("/entrar");throw new Error("Sessão encerrada.");}
       const d = await readApiResponse<any>(r);
       setCards(d.cards);
+      setMetricHistory(d.metricHistory??null);
       setSavedColumns(d.columns ?? []);
       setCustomers(d.customers ?? []);
       setFiles(d.files);
@@ -538,7 +541,7 @@ export default function Home({user}:{user:AuthUser}) {
           {c.notes && <p>{c.notes}</p>}
           {c.kind === "title" && (
             <strong className="amount">
-              {c.balance_display ? `R$ ${c.balance_display}` : money(c.amount)}
+              {money(c.amount)}
             </strong>
           )}
           <div className="card-meta">
@@ -602,7 +605,7 @@ export default function Home({user}:{user:AuthUser}) {
             )}
           </div>
           <strong className="amount">
-            {c.balance_display ? `R$ ${c.balance_display}` : money(c.amount)}
+            {money(c.amount)}
           </strong>
           <div className="card-meta">
             <span>
@@ -717,7 +720,7 @@ export default function Home({user}:{user:AuthUser}) {
             </button>
           </div>
         </section>
-        <DashboardMetrics cards={cards} date={now} loaded={loaded}/>
+        <DashboardMetrics cards={cards} date={now} loaded={loaded} history={metricHistory}/>
         </>}
         <Tabs value={view} onValueChange={(v) => setView(v)}>
           <div className="workspace-shell">
@@ -892,9 +895,7 @@ export default function Home({user}:{user:AuthUser}) {
                             </span>
                             <span>
                               <b>Saldo:</b>{" "}
-                              {c.balance_display
-                                ? `R$ ${c.balance_display}`
-                                : money(c.amount)}
+                              {money(c.amount)}
                             </span>
                           </div>
                           <button
@@ -1125,7 +1126,7 @@ export default function Home({user}:{user:AuthUser}) {
                           </td>
                           <td>{row.document}</td>
                           <td>{row.due.split("-").reverse().join("/")}</td>
-                          <td>R$ {row.balance_display}</td>
+                          <td>{money(row.amount)}</td>
                         </tr>
                       ))}
                     </tbody>
