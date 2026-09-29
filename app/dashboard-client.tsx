@@ -69,6 +69,7 @@ import {
 import { TITLE_EVENT_OPTIONS } from "@/lib/policy";
 import { collectionStage, columnDays, inDayColumn } from "@/lib/columns";
 import { ScrollableBoard } from "@/components/scrollable-board";
+import { DashboardMetrics } from "@/components/dashboard-metrics";
 import { CustomerWallet } from "@/components/customer-wallet";
 import { AnalysisWorkspace } from "@/components/analysis-workspace";
 import { UserSettings } from "@/components/user-settings";
@@ -716,55 +717,7 @@ export default function Home({user}:{user:AuthUser}) {
             </button>
           </div>
         </section>
-        <section className="stats">
-          <div>
-            <span className="stat-icon purple">
-              <Wallet size={20} />
-            </span>
-            <div>
-              <small>Em aberto</small>
-              <strong>
-                {money(
-                  unpaid
-                    .filter((c) => c.kind === "title")
-                    .reduce((a, c) => a + c.amount, 0),
-                )}
-              </strong>
-              <span>{unpaid.length} cartões para acompanhar</span>
-            </div>
-          </div>
-          <div>
-            <span className="stat-icon amber">
-              <Clock3 size={20} />
-            </span>
-            <div>
-              <small>Vencidos</small>
-              <strong>
-                {overdue.length.toString().padStart(2, "0")} <em>cartões</em>
-              </strong>
-              <span>Vencimentos ultrapassados</span>
-            </div>
-          </div>
-          <div>
-            <span className="stat-icon green">
-              <CheckCheck size={20} />
-            </span>
-            <div>
-              <small>Resolvidos</small>
-              <strong>
-                {paid.length.toString().padStart(2, "0")} <em>cartões</em>
-              </strong>
-              <span>
-                {money(
-                  paid
-                    .filter((c) => c.kind === "title")
-                    .reduce((a, c) => a + c.amount, 0),
-                )}{" "}
-                em títulos pagos
-              </span>
-            </div>
-          </div>
-        </section>
+        <DashboardMetrics cards={cards} date={now} loaded={loaded}/>
         </>}
         <Tabs value={view} onValueChange={(v) => setView(v)}>
           <div className="workspace-shell">
