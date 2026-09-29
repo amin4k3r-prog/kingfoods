@@ -351,12 +351,16 @@ export default function Home({user}:{user:AuthUser}) {
       const initial=previewReceivablesCsv(text,cards,[]);
       const candidates=new Map<string,{id:string;name:string;customer_code?:string|null;tax_id?:string}>();
       const uniqueRows=[...new Map(initial.rows.map(row=>[JSON.stringify([row.customer_code,row.customer_names]),row])).values()];
-      for(let offset=0;offset<uniqueRows.length;offset+=20){
+      if(uniqueRows.length>5000)throw new Error('O relatório precisa conter até 5.000 títulos válidos.');
+      let cursor:string|null=null;
+      do {
         if(lookupVersion!==importLookupVersion.current)return;
-        const response=await fetch('/api/customers/lookup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rows:uniqueRows.slice(offset,offset+20).map(row=>({customer_code:row.customer_code,customer_names:row.customer_names}))})});
-        const result=await readApiResponse<{customers:{id:string;name:string;customer_code?:string|null;tax_id?:string}[]}>(response);
+        const response:Response=await fetch('/api/customers/lookup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scan:true,...(cursor?{cursor}:{}),rows:uniqueRows.map(row=>({customer_code:row.customer_code,customer_names:row.customer_names}))})});
+        const result:{customers:{id:string;name:string;customer_code?:string|null;tax_id?:string}[];nextCursor:string|null}=await readApiResponse(response);
+        if(result.nextCursor===undefined)throw new Error('A atualização da importação ainda está sendo publicada. Atualize a página em instantes.');
         for(const customer of result.customers)candidates.set(customer.id,customer);
-      }
+        cursor=result.nextCursor;
+      }while(cursor);
       if(lookupVersion===importLookupVersion.current)setImportPreview(previewReceivablesCsv(text,cards,[...candidates.values()]));
     } catch (e) {
       if(lookupVersion===importLookupVersion.current)setImportError((e as Error).message || "Não foi possível ler este CSV.");
