@@ -1,6 +1,6 @@
 import {requireUser, audit} from '@/lib/auth';
 import {db,failure,sameOrigin} from '@/lib/server';
-import {summary,schedule,type AnalysisCustomer,type AnalysisRecord} from '@/lib/analysis';
+import {summary,schedule,paginateAnalyses,type AnalysisCustomer,type AnalysisRecord} from '@/lib/analysis';
 import {today} from '@/lib/board';
 
 const outcomes=['manter','aprovar','reduzir','suspender','sem_credito'] as const;
@@ -31,7 +31,7 @@ export async function GET(request:Request){try{
  const changes=customers.filter(customer=>latest.get(customer.id)!==customer.state).map(customer=>d.prepare('INSERT OR IGNORE INTO analysis_events(id,customer_id,analysis_id,event_type,from_state,to_state,responsible,note,occurred_at) VALUES(?,?,NULL,?,?,?,?,?,?)').bind(`${customer.id}:state:${today()}:${customer.state}`,customer.id,'state',latest.get(customer.id)??null,customer.state,'Sistema',customer.alert?'Revisão vencida; aumento automático de limite e prazo bloqueado.':'Estado recalculado pela agenda.',new Date().toISOString()));
  for(const batch of chunks(changes,50))await d.batch(batch);
  if(new URL(request.url).searchParams.has('summary'))return Response.json({overdue:customers.filter(customer=>customer.alert).length});
- return Response.json({customers});
+ return Response.json(paginateAnalyses(customers,new URL(request.url).searchParams),{headers:{'Cache-Control':'private, no-store'}});
 }catch(e){return failure(e);}}
 
 export async function POST(request:Request){try{
