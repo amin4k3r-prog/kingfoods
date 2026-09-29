@@ -145,6 +145,11 @@ export default function Home({user}:{user:AuthUser}) {
   const [customerSearch,setCustomerSearch]=useState('');
   const [customerOptions,setCustomerOptions]=useState<Customer[]>([]);
   const [customerSearchError,setCustomerSearchError]=useState('');
+  const [customerPage,setCustomerPage]=useState(1);
+  const [customerPages,setCustomerPages]=useState(1);
+  const [customerTotal,setCustomerTotal]=useState(0);
+  const [customerLoading,setCustomerLoading]=useState(false);
+  function searchCustomers(value:string){setCustomerSearch(value);setCustomerPage(1);setCustomerOptions([]);setCustomerLoading(true);}
   const [importLookupBusy,setImportLookupBusy]=useState(false);
   const importLookupVersion=useRef(0);
   const [view, setView] = useState("tasks");
@@ -185,14 +190,22 @@ export default function Home({user}:{user:AuthUser}) {
   useEffect(()=>{
     if(!edit&&!importOpen)return;
     const controller=new AbortController();
+    setCustomerLoading(true);
+    setCustomerOptions([]);
     const timer=setTimeout(()=>{
-      fetch('/api/customers?'+new URLSearchParams({q:customerSearch}),{signal:controller.signal,cache:'no-store'})
-        .then(readApiResponse<{customers:Customer[]}>)
-        .then(data=>{if(!controller.signal.aborted){setCustomerOptions(data.customers);setCustomerSearchError('');}})
-        .catch(e=>{if(!controller.signal.aborted)setCustomerSearchError(e.message)});
+      fetch('/api/customers?'+new URLSearchParams({q:customerSearch,page:String(customerPage)}),{signal:controller.signal,cache:'no-store'})
+        .then(readApiResponse<{customers:Customer[];page:number;pages:number;total:number}>)
+        .then(data=>{if(!controller.signal.aborted){setCustomerOptions(data.customers);setCustomerPage(data.page);setCustomerPages(data.pages);setCustomerTotal(data.total);setCustomerSearchError('');}})
+        .catch(e=>{if(!controller.signal.aborted)setCustomerSearchError(e.message)})
+        .finally(()=>{if(!controller.signal.aborted)setCustomerLoading(false);});
     },300);
     return()=>{clearTimeout(timer);controller.abort();};
-  },[customerSearch,edit?.id,!!edit,importOpen]);
+  },[customerSearch,customerPage,edit?.id,!!edit,importOpen]);
+  function customerPagination(){return <div className="flex flex-wrap items-center gap-2" aria-label="Páginas de clientes">
+    <button type="button" className="btn secondary" disabled={customerLoading||customerPage<=1} onClick={()=>{setCustomerLoading(true);setCustomerPage(p=>p-1);}}>Clientes anteriores</button>
+    <span role="status">{customerLoading?'Buscando clientes…':customerSearchError?'Busca indisponível':customerTotal===0?'Nenhum cliente encontrado':`${customerTotal} clientes · Página ${customerPage} de ${customerPages}`}</span>
+    <button type="button" className="btn secondary" disabled={customerLoading||!!customerSearchError||customerPage>=customerPages} onClick={()=>{setCustomerLoading(true);setCustomerPage(p=>p+1);}}>Próximos clientes</button>
+  </div>;}
   const refresh = useCallback(async () => {
     try {
       const r = await fetch("/api/board");
@@ -990,7 +1003,7 @@ export default function Home({user}:{user:AuthUser}) {
       >
         <DialogContent className="editor import-dialog">
           <DialogTitle>Importar títulos em aberto</DialogTitle>
-          <input aria-label="Buscar cliente para vincular na importação" placeholder="Buscar cliente por nome, código ou CPF/CNPJ" value={customerSearch} onChange={e=>setCustomerSearch(e.target.value)}/>
+          <input aria-label="Buscar cliente para vincular na importação" placeholder="Buscar em todos os clientes por nome, código ou CPF/CNPJ" value={customerSearch} onChange={e=>searchCustomers(e.target.value)}/>
           {customerSearchError&&<p role="alert">{customerSearchError}</p>}
           <DialogDescription>
             Selecione o relatório CSV. A carteira será sincronizada com os
@@ -1057,9 +1070,12 @@ export default function Home({user}:{user:AuthUser}) {
                   {unlinkedImportRows
                     .slice(currentImportLinkPage * 10, (currentImportLinkPage + 1) * 10)
                     .map((row) => (
-                      <label key={row.document}>
+                      <div key={row.document}>
                         Título #{row.document}
+                        <input aria-label={`Buscar cliente do título ${row.document}`} placeholder="Buscar em todos os clientes por nome, código ou CPF/CNPJ" value={customerSearch} onChange={e=>searchCustomers(e.target.value)}/>
+                        {customerPagination()}
                         <Select
+                          disabled={customerLoading||!!customerSearchError}
                           value="__none"
                           open={importLinkOpen === row.document}
                           onOpenChange={(open) => setImportLinkOpen(open ? row.document : null)}
@@ -1107,7 +1123,7 @@ export default function Home({user}:{user:AuthUser}) {
                             ))}
                           </SelectContent>}
                         </Select>
-                      </label>
+                      </div>
                     ))}
                   {importLinkPages > 1 && (
                     <div className="flex items-center justify-between gap-3">
@@ -1275,9 +1291,11 @@ export default function Home({user}:{user:AuthUser}) {
               {edit.kind === "title" && (
                 <label>
                   Cliente vinculado
-                  <input aria-label="Buscar cliente para vincular" placeholder="Buscar nome, código ou CPF/CNPJ" value={customerSearch} onChange={e=>setCustomerSearch(e.target.value)}/>
+                  <input aria-label="Buscar cliente para vincular" placeholder="Buscar em todos os clientes por nome, código ou CPF/CNPJ" value={customerSearch} onChange={e=>searchCustomers(e.target.value)}/>
+                  {customerPagination()}
                   {customerSearchError&&<span role="alert">{customerSearchError}</span>}
                   <Select
+                    disabled={customerLoading||!!customerSearchError}
                     value={edit.customer_id || "__none"}
                     onValueChange={(value) =>
                       setEdit({
