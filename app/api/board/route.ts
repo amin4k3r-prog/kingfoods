@@ -12,7 +12,7 @@ export async function GET(request:Request) {
       d.prepare("SELECT * FROM files").all(),
       d
         .prepare(
-          "SELECT id,tax_id,name,payer_name,phone,payer_contact,delivery_address,address_confirmed,risk_class,portfolio_curve,customer_code,seller_name,last_sale_date,address,city,category,credit_limit,credit_term_days,created_at,updated_at,photo_key FROM customers ORDER BY name COLLATE NOCASE",
+          "SELECT id,tax_id,name,payer_name,phone,payer_contact,delivery_address,address_confirmed,risk_class,portfolio_curve,customer_code,seller_name,last_sale_date,address,city,category,credit_limit,credit_term_days,created_at,updated_at,photo_key FROM customers WHERE id IN (SELECT DISTINCT customer_id FROM cards WHERE customer_id IS NOT NULL) ORDER BY name COLLATE NOCASE",
         )
         .all(),
       d.prepare('SELECT day FROM "columns" ORDER BY day').all(),

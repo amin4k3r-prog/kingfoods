@@ -139,6 +139,9 @@ async function importApi(body: unknown) {
   return readApiResponse<any>(r);
 }
 export default function Home({user}:{user:AuthUser}) {
+  const [customerSearch,setCustomerSearch]=useState('');
+  const [customerOptions,setCustomerOptions]=useState<Customer[]>([]);
+  const [customerSearchError,setCustomerSearchError]=useState('');
   const [view, setView] = useState("tasks");
   const [maximizedLabel, setMaximizedLabel] = useState<string | null>(null);
   const [columnMaximized, setColumnMaximized] = useState(false);
@@ -174,6 +177,17 @@ export default function Home({user}:{user:AuthUser}) {
     [eventType, setEventType] = useState("message_sent"),
     [eventNote, setEventNote] = useState(""),
     [eventBusy, setEventBusy] = useState(false);
+  useEffect(()=>{
+    if(!edit&&!importOpen)return;
+    const controller=new AbortController();
+    const timer=setTimeout(()=>{
+      fetch('/api/customers?'+new URLSearchParams({q:customerSearch}),{signal:controller.signal,cache:'no-store'})
+        .then(readApiResponse<{customers:Customer[]}>)
+        .then(data=>{if(!controller.signal.aborted){setCustomerOptions(data.customers);setCustomerSearchError('');}})
+        .catch(e=>{if(!controller.signal.aborted)setCustomerSearchError(e.message)});
+    },300);
+    return()=>{clearTimeout(timer);controller.abort();};
+  },[customerSearch,edit?.id,!!edit,importOpen]);
   const refresh = useCallback(async () => {
     try {
       const r = await fetch("/api/board");
@@ -186,7 +200,6 @@ export default function Home({user}:{user:AuthUser}) {
       setLoaded(true);
       setError("");
       setNow(today());
-      fetch('/api/analyses?summary=1').then(response=>response.ok?response.json() as Promise<{overdue:number}>:null).then(data=>{if(data)setAnalysisOverdue(Number(data.overdue)||0)}).catch(()=>{});
       return d;
     } catch (e) {
       setError((e as Error).message);
@@ -194,6 +207,7 @@ export default function Home({user}:{user:AuthUser}) {
     }
   }, []);
   useEffect(() => {
+    if(view !== 'tasks' && view !== 'paid')return;
     refresh().catch(() => {});
     const refreshWhenVisible = () => {
       if (document.visibilityState === "visible") refresh().catch(() => {});
@@ -204,7 +218,10 @@ export default function Home({user}:{user:AuthUser}) {
       clearInterval(t);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
-  }, [refresh]);
+  }, [refresh,view]);
+  useEffect(()=>{
+    if(view==='analyses')fetch('/api/analyses?summary=1').then(readApiResponse<{overdue:number}>).then(data=>setAnalysisOverdue(Number(data.overdue)||0)).catch(()=>{});
+  },[view]);
   useEffect(() => {
     const ctx = (document as any).modelContext;
     if (!ctx?.registerTool) return;
@@ -867,12 +884,11 @@ export default function Home({user}:{user:AuthUser}) {
                 </ScrollableBoard>
               </TabsContent>
               <TabsContent value="customers">
-                <CustomerWallet
-                  customers={customers}
+                {view === "customers" && <CustomerWallet
                   cards={cards.filter((c) => c.kind === "title")}
                   onSaved={() => refresh().then(() => undefined)}
                   onOpenTitle={(card) => open(card)}
-                />
+                />}
               </TabsContent>
               <TabsContent value="analyses">
                 {view === "analyses" && <AnalysisWorkspace onChanged={() => refresh().then(() => undefined)} />}
@@ -1005,6 +1021,8 @@ export default function Home({user}:{user:AuthUser}) {
       >
         <DialogContent className="editor import-dialog">
           <DialogTitle>Importar títulos em aberto</DialogTitle>
+          <input aria-label="Buscar cliente para vincular na importação" placeholder="Buscar cliente por nome, código ou CPF/CNPJ" value={customerSearch} onChange={e=>setCustomerSearch(e.target.value)}/>
+          {customerSearchError&&<p role="alert">{customerSearchError}</p>}
           <DialogDescription>
             Selecione o relatório CSV. A carteira será sincronizada com os
             títulos presentes no arquivo.
@@ -1111,7 +1129,7 @@ export default function Home({user}:{user:AuthUser}) {
                             <SelectItem value="__none">
                               Selecionar cliente
                             </SelectItem>
-                            {customers.map((customer) => (
+                            {Array.from(new Map([...customers.filter(c=>c.id===edit?.customer_id),...customerOptions].map(c=>[c.id,c])).values()).map((customer) => (
                               <SelectItem key={customer.id} value={customer.id}>
                                 #{customer.customer_code} · {customer.name} ·{" "}
                                 {customer.tax_id}
@@ -1287,6 +1305,8 @@ export default function Home({user}:{user:AuthUser}) {
               {edit.kind === "title" && (
                 <label>
                   Cliente vinculado
+                  <input aria-label="Buscar cliente para vincular" placeholder="Buscar nome, código ou CPF/CNPJ" value={customerSearch} onChange={e=>setCustomerSearch(e.target.value)}/>
+                  {customerSearchError&&<span role="alert">{customerSearchError}</span>}
                   <Select
                     value={edit.customer_id || "__none"}
                     onValueChange={(value) =>
@@ -1303,7 +1323,7 @@ export default function Home({user}:{user:AuthUser}) {
                       <SelectItem value="__none">
                         Sem cliente vinculado
                       </SelectItem>
-                      {customers.map((customer) => (
+                      {Array.from(new Map([...customers.filter(c=>c.id===edit?.customer_id),...customerOptions].map(c=>[c.id,c])).values()).map((customer) => (
                         <SelectItem key={customer.id} value={customer.id}>
                           #{customer.customer_code} · {customer.name} ·{" "}
                           {customer.tax_id}

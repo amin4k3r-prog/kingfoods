@@ -4,6 +4,30 @@ import {normalizeCustomerName,validRiskClass,validTaxId} from '@/lib/policy';
 
 const imageTypes=new Map([['image/jpeg','jpg'],['image/png','png'],['image/webp','webp']]);
 
+export async function GET(request: Request) {
+ try {
+  await requireUser(request);
+  const params = new URL(request.url).searchParams;
+  const page = Math.max(1, Math.min(100000, Number(params.get('page')) || 1));
+  if (!Number.isInteger(page)) return Response.json({error:'Página inválida.'},{status:400});
+  const query = (params.get('q') ?? '').trim().slice(0,200);
+  const pattern = `%${query.replace(/[\\%_]/g, '\\$&')}%`;
+  const where = query ? "WHERE (c.name LIKE ? ESCAPE '\\' OR c.customer_code LIKE ? ESCAPE '\\' OR c.tax_id LIKE ? ESCAPE '\\' OR c.seller_name LIKE ? ESCAPE '\\' OR c.city LIKE ? ESCAPE '\\')" : '';
+  const taxQuery = query.replace(/[^0-9]/g,'');
+  const values = query ? [pattern,pattern,taxQuery ? `%${taxQuery}%` : pattern,pattern,pattern] : [];
+  const titleCount = "(SELECT COUNT(*) FROM cards t WHERE t.customer_id=c.id AND t.kind='title' AND t.paid=0 AND t.archived_at IS NULL)";
+  const sort = params.get('sort');
+  const order = sort==='titles' ? 'title_count DESC,c.name COLLATE NOCASE,c.id' : sort==='rank' ? "CASE c.risk_class WHEN 'A' THEN 0 WHEN 'B' THEN 1 WHEN 'C' THEN 2 WHEN 'D' THEN 3 WHEN 'E' THEN 4 ELSE 5 END,c.name COLLATE NOCASE,c.id" : 'c.name COLLATE NOCASE,c.id';
+  const d=db();
+  const total=await d.prepare(`SELECT COUNT(*) AS total FROM customers c ${where}`).bind(...values).first<{total:number}>();
+  const pages=Math.max(1,Math.ceil(Number(total?.total??0)/10));
+  const currentPage=Math.min(page,pages);
+  const rows=await d.prepare(`SELECT c.*,${titleCount} AS title_count FROM customers c ${where} ORDER BY ${order} LIMIT 10 OFFSET ?`).bind(...values,(currentPage-1)*10).all();
+  const customers=rows.results.map(({photo_key,...customer})=>({...customer,photo_url:photo_key?'/api/customer-photo?id='+encodeURIComponent(String(photo_key)):null}));
+  return Response.json({customers,page:currentPage,pages,total:Number(total?.total??0)},{headers:{'Cache-Control':'private, no-store'}});
+ } catch(e) { return failure(e); }
+}
+
 async function linkUnassignedTitles(d:any){
  const [profiles,titles]=await Promise.all([
   d.prepare('SELECT id,name FROM customers').all(),
