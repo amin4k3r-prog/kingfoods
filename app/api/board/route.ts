@@ -1,5 +1,7 @@
 import {requireUser, audit} from '@/lib/auth';
 import { DEFAULT_DAYS } from "@/lib/columns";
+import {recordMetricHistory} from '@/lib/metric-history';
+import {today,type Card} from '@/lib/board';
 import { db, failure, sameOrigin, bucket } from "@/lib/server";
 export async function GET(request:Request) {
   try {
@@ -25,7 +27,10 @@ export async function GET(request:Request) {
           : null,
       }),
     );
-    return Response.json({ cards: c.results, files: f.results, customers, columns: columns.results.map((row: any) => row.day) });
+    let metricHistory=null;
+    try { metricHistory=await recordMetricHistory(d,c.results as Card[],today()); }
+    catch(e) { console.error('Histórico de métricas indisponível',e); }
+    return Response.json({ cards: c.results, files: f.results, customers, metricHistory, columns: columns.results.map((row: any) => row.day) },{headers:{'Cache-Control':'private, no-store'}});
   } catch (e) {
     return failure(e);
   }
