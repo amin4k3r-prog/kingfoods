@@ -20,11 +20,12 @@ export async function GET(request: Request) {
   const order = sort==='titles' ? 'title_count DESC,c.name COLLATE NOCASE,c.id' : sort==='rank' ? "CASE c.risk_class WHEN 'A' THEN 0 WHEN 'B' THEN 1 WHEN 'C' THEN 2 WHEN 'D' THEN 3 WHEN 'E' THEN 4 ELSE 5 END,c.name COLLATE NOCASE,c.id" : 'c.name COLLATE NOCASE,c.id';
   const d=db();
   const total=await d.prepare(`SELECT COUNT(*) AS total FROM customers c ${where}`).bind(...values).first<{total:number}>();
+  const all = query ? await d.prepare('SELECT COUNT(*) AS total FROM customers').first<{total:number}>() : total;
   const pages=Math.max(1,Math.ceil(Number(total?.total??0)/10));
   const currentPage=Math.min(page,pages);
   const rows=await d.prepare(`SELECT c.*,${titleCount} AS title_count FROM customers c ${where} ORDER BY ${order} LIMIT 10 OFFSET ?`).bind(...values,(currentPage-1)*10).all();
   const customers=rows.results.map(({photo_key,...customer})=>({...customer,photo_url:photo_key?'/api/customer-photo?id='+encodeURIComponent(String(photo_key)):null}));
-  return Response.json({customers,page:currentPage,pages,total:Number(total?.total??0)},{headers:{'Cache-Control':'private, no-store'}});
+  return Response.json({customers,page:currentPage,pages,total:Number(total?.total??0),totalCustomers:Number(all?.total??0)},{headers:{'Cache-Control':'private, no-store'}});
  } catch(e) { return failure(e); }
 }
 
