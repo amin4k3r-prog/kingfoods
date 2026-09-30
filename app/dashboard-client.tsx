@@ -610,17 +610,9 @@ export default function Home({user}:{user:AuthUser}) {
       </header>
       <main>
         {view === "tasks" && <>
-        <div className="breadcrumb">
-          Visão geral <span>/</span> Financeiro
-        </div>
         <section className="heading">
           <div>
             <div className="eyebrow">PAINEL FINANCEIRO · KING FOODS</div>
-            <h1>Gestão financeira</h1>
-            <p>
-              Prioridades, cobranças e recebimentos organizados em uma única
-              visão.
-            </p>
           </div>
           <div className="heading-actions">
             <button
