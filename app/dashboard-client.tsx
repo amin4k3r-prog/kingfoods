@@ -23,8 +23,6 @@ import {
   Users,
   Settings,
   LogOut,
-  Maximize2,
-  Minimize2,
 } from "lucide-react";
 import {
   Dialog,
@@ -67,8 +65,8 @@ import {
   type CsvImportPreview,
 } from "@/lib/csv-import";
 import { TITLE_EVENT_OPTIONS } from "@/lib/policy";
-import { collectionStage, columnDays, inDayColumn } from "@/lib/columns";
-import { ScrollableBoard } from "@/components/scrollable-board";
+import { columnDays, inDayColumn } from "@/lib/columns";
+import { DueBands } from "@/components/due-bands";
 import { DashboardMetrics } from "@/components/dashboard-metrics";
 import type {MetricPoint} from '@/lib/metric-history';
 import { CustomerWallet } from "@/components/customer-wallet";
@@ -154,9 +152,6 @@ export default function Home({user}:{user:AuthUser}) {
   const [importLookupBusy,setImportLookupBusy]=useState(false);
   const importLookupVersion=useRef(0);
   const [view, setView] = useState("tasks");
-  const [maximizedLabel, setMaximizedLabel] = useState<string | null>(null);
-  const [columnMaximized, setColumnMaximized] = useState(false);
-  const maximizeTrigger = useRef<HTMLButtonElement | null>(null);
   const [cards, setCards] = useState<Card[]>([]),
     [customers, setCustomers] = useState<Customer[]>([]),
     [analysisOverdue, setAnalysisOverdue] = useState(0),
@@ -491,22 +486,6 @@ export default function Home({user}:{user:AuthUser}) {
   );
   const kanbanCards = [...visibleTitles, ...visibleTaskCards];
   const days = columnDays(savedColumns);
-  const stageTitle = (day: number) => {
-    if (day === -2) return "Lembrete de vencimento";
-    if (day < 0) return "A vencer";
-    if (day === 0) return "Vence hoje";
-    if (day === 2) return "Segunda cobrança";
-    if (day === 3) return "Terceira cobrança";
-    if (day === 4) return "Quarta cobrança";
-    if (day < 5) return "Primeira cobrança e bloqueio de novos pedidos";
-    if (day < 10) return "Negociação e aviso de protesto";
-    if (day < 15) return "Negociação (A/B) · Cartório (C/D/E)";
-    if (day < 45) return "Encaminhamento ao cartório";
-    if (day < 60) return "Negativação";
-    if (day < 90) return "Negativação (A/B) · Jurídico (C/D/E)";
-    return "Encaminhamento ao jurídico";
-  };
-  const stageTone = (day: number) => day === -2 ? "stage-reminder" : day >= 90 ? "stage-legal" : day >= 45 ? "stage-negative" : day >= 15 ? "stage-registry" : day >= 5 ? "stage-negotiation" : day >= 1 ? "stage-first" : "stage-upcoming";
   const kanbanColumns = [
     {
       label: "A Vencer",
@@ -541,12 +520,6 @@ export default function Home({user}:{user:AuthUser}) {
       };
     }),
   ];
-  const maximizedColumn = kanbanColumns.find(column => column.label === maximizedLabel);
-  function maximizeColumn(label: string, trigger: HTMLButtonElement) {
-    maximizeTrigger.current = trigger;
-    setMaximizedLabel(label);
-    setColumnMaximized(true);
-  }
   function renderCard(c: Card) {
     const customer = c.customer_id ? customerById.get(c.customer_id) : null;
     return (
@@ -601,70 +574,6 @@ export default function Home({user}:{user:AuthUser}) {
               ? "Marcar como pago"
               : "Concluir tarefa"}
         </button>
-      </article>
-    );
-  }
-  function renderTitleTask(c: Card) {
-    const customer = c.customer_id ? customerById.get(c.customer_id) : null;
-    return (
-      <article className={`card collection-task stage-${collectionStage(daysLate(c.due, now), customer?.risk_class)}`} key={c.id}>
-        <div className="card-top card-top-outside">
-          <span className="tag task">Tarefa de cobrança</span>
-        </div>
-        <button className="card-body" onClick={() => open(c)}>
-          <h4>
-            {customer
-              ? `Cliente #${customer.customer_code} — ${customer.name}`
-              : c.customer || "Cliente sem vínculo"}
-          </h4>
-          <div className="imported-details">
-            <span>
-              <b>Título #{c.document}</b>
-            </span>
-            {customer && (
-              <span>
-                <b>{customer.tax_id.replace(/\D/g, '').length === 11 ? 'CPF' : 'CNPJ'}:</b> {customer.tax_id}
-              </span>
-            )}
-            {c.charge_type && (
-              <span>
-                <b>Cobrança:</b> {c.charge_type}
-              </span>
-            )}
-            {(c.seller || customer?.seller_name) && (
-              <span>
-                <b>Vendedor:</b> {c.seller || customer?.seller_name}
-              </span>
-            )}
-          </div>
-          <strong className="amount">
-            {money(c.amount)}
-          </strong>
-          <div className="card-meta">
-            <span>
-              <CalendarDays size={14} />
-              {c.due.split("-").reverse().join("/")}
-              {daysLate(c.due, now) > 0 &&
-                ` · vencido há ${daysLate(c.due, now)}d`}
-            </span>
-            <span>
-              <Paperclip size={14} />
-              {files.filter((f) => f.card_id === c.id).length}
-            </span>
-          </div>
-        </button>
-        <div className="collection-task-actions">
-          <button className="secondary-button" onClick={() => open(c)}>
-            <FileText size={15} /> Abrir tarefa e histórico
-          </button>
-          <button
-            className={`pay ${c.paid ? "done" : "payment-action"}`}
-            onClick={() => mark(c)}
-          >
-            <Check size={15} />
-            {c.paid ? "Reabrir título" : "Marcar como pago"}
-          </button>
-        </div>
       </article>
     );
   }
@@ -801,60 +710,8 @@ export default function Home({user}:{user:AuthUser}) {
                 </div>
               )}
               <TabsContent value="tasks">
-                <p className="drag-instructions">
-                  Segure o botão esquerdo do mouse e arraste o quadro para os lados.
-                  Os títulos avançam automaticamente conforme os dias de atraso.
-                </p>
-                <ScrollableBoard>
-                  {kanbanColumns.map((column) => {
-                    const shownCards = column.cards.slice(0, 1);
-                    return (
-                      <section
-                        className={`column ${column.tone} ${stageTone(column.day)}`}
-                        key={column.label}
-                      >
-                        <div className="column-header">
-                          <h3 className="stage-heading">
-                            <span className="dot" />
-                            <span className="stage-heading-text"><strong>{stageTitle(column.day)}</strong><small>{column.label}</small></span>
-                          </h3>
-                          <div className="column-tools">
-                            <b>{column.cards.length}</b>
-                            <button type="button" title="Maximizar coluna" aria-label={`Maximizar coluna ${column.label}`} aria-haspopup="dialog" onClick={e => maximizeColumn(column.label, e.currentTarget)}><Maximize2 size={16} /></button>
-                            <button
-                              aria-label={`Adicionar em ${column.label}`}
-                              onClick={() => open(undefined, column.day)}
-                            >
-                              <Plus size={16} />
-                            </button>
-                          </div>
-                        </div>
-                        <p className="column-sub">{column.day > 0 && ![1, 5, 10, 15, 45, 60, 90].includes(column.day) ? column.caption : "\u00a0"}</p>
-                        <div className="cards">
-                          {shownCards.map((card) =>
-                            card.kind === "title"
-                              ? renderTitleTask(card)
-                              : renderCard(card),
-                          )}
-                          {!column.cards.length && (
-                            <div className="empty-column">
-                              <CalendarDays size={22} />
-                              <p>Nenhum cartão nesta etapa.</p>
-                            </div>
-                          )}
-                        </div>
-                        {column.cards.length > 1 && <button type="button" className="maximize-column-button" aria-haspopup="dialog" onClick={e => maximizeColumn(column.label, e.currentTarget)}><Maximize2 size={16} /> Ver todos os {column.cards.length} cartões</button>}
-                        <button
-                          className="add-card"
-                          onClick={() => open(undefined, column.day)}
-                        >
-                          <Plus size={15} />
-                          Adicionar cartão
-                        </button>
-                      </section>
-                    );
-                  })}
-                </ScrollableBoard>
+                <p className="drag-instructions">Expanda uma faixa para consultar seus títulos. Os vencimentos avançam automaticamente conforme as regras atuais.</p>
+                <DueBands columns={kanbanColumns} customers={customers} files={files} day={now} onOpen={open} onMark={mark} onAdd={day=>open(undefined,day)}/>
               </TabsContent>
               <TabsContent value="customers">
                 {view === "customers" && <CustomerWallet
@@ -940,25 +797,6 @@ export default function Home({user}:{user:AuthUser}) {
           </div>
         </Tabs>
       </main>
-      <Dialog open={columnMaximized} onOpenChange={setColumnMaximized}>
-        <DialogContent className={`premium-board column-maximized ${maximizedColumn ? stageTone(maximizedColumn.day) : ""}`} showCloseButton={false} onCloseAutoFocus={event => { event.preventDefault(); maximizeTrigger.current?.focus(); }}>
-          {maximizedColumn && <>
-            <div className="maximized-header">
-              <div>
-                <DialogTitle className="maximized-title">{stageTitle(maximizedColumn.day)}</DialogTitle>
-                <DialogDescription className="maximized-description"><span>{maximizedColumn.label}</span> · {maximizedColumn.cards.length} cartões{normalizedQuery ? " encontrados na busca" : " nesta etapa"}</DialogDescription>
-              </div>
-              <button type="button" className="secondary-button" onClick={() => setColumnMaximized(false)}><Minimize2 size={18} /> Voltar ao quadro</button>
-            </div>
-            <div className="maximized-scroll">
-              <div className="maximized-card-grid">
-                {maximizedColumn.cards.map(card => card.kind === "title" ? renderTitleTask(card) : renderCard(card))}
-              </div>
-              {!maximizedColumn.cards.length && <div className="empty-column"><CalendarDays size={30} /><p>Nenhum cartão nesta etapa.</p></div>}
-            </div>
-          </>}
-        </DialogContent>
-      </Dialog>
       <Dialog open={columnOpen} onOpenChange={value => { if (!columnBusy) setColumnOpen(value); }}>
         <DialogContent className="editor">
           <DialogTitle>Nova coluna D+</DialogTitle>
