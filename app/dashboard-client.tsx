@@ -74,6 +74,7 @@ import type {MetricPoint} from '@/lib/metric-history';
 import { CustomerWallet } from "@/components/customer-wallet";
 import { AnalysisWorkspace } from "@/components/analysis-workspace";
 import { UserSettings } from "@/components/user-settings";
+import { SellerReportDialog } from '@/components/seller-report-dialog';
 import type { AuthUser } from "@/lib/auth";
 import { readApiResponse } from "@/lib/api-response";
 const blank = () => ({
@@ -730,23 +731,7 @@ export default function Home({user}:{user:AuthUser}) {
             >
               <Trash2 size={17} /> Excluir títulos
             </button>
-            <button
-              className="secondary-button"
-              onClick={() =>
-                open({
-                  id: "",
-                  title: "",
-                  notes: "",
-                  due: today(),
-                  amount: 0,
-                  kind: "task",
-                  paid: 0,
-                  created: "",
-                })
-              }
-            >
-              <Plus size={17} /> Nova tarefa
-            </button>
+            <SellerReportDialog/>
             <button className="primary" onClick={() => open()}>
               <Plus size={19} /> Novo cartão
             </button>
