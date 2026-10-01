@@ -1,0 +1,47 @@
+import {requireUser} from '@/lib/auth';
+import {db,failure,sameOrigin} from '@/lib/server';
+import {today} from '@/lib/board';
+import {calculate,initialInput,marker,unpack,type Input,type Context} from '@/lib/credit-policy';
+async function fingerprint(value:string){return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value))),b=>b.toString(16).padStart(2,'0')).join('');}
+async function version(id:string){const row=await db().prepare('SELECT id,status,notes FROM credit_analyses WHERE customer_id=? ORDER BY started_at DESC,id DESC LIMIT 1').bind(id).first();return fingerprint(JSON.stringify(row));}
+async function context(id:string){
+ const d=db(),customer=await d.prepare('SELECT * FROM customers WHERE id=?').bind(id).first<any>();if(!customer)throw new Error('Cliente não encontrado.');
+ const sums=await d.prepare("SELECT COALESCE(SUM(amount),0) AS exposure,COALESCE(SUM(CASE WHEN due<? THEN amount ELSE 0 END),0) AS overdue FROM cards WHERE customer_id=? AND kind='title' AND paid=0 AND archived_at IS NULL").bind(today(),id).first<any>();
+ const c:Context={complete:!!(customer.name&&customer.tax_id&&customer.photo_key&&customer.payer_name&&customer.phone&&customer.payer_contact&&(customer.delivery_address||customer.address)&&customer.address_confirmed),currentLimit:customer.credit_limit/100,currentTerm:customer.credit_term_days,exposure:Number(sums?.exposure??0)/100,overdue:Number(sums?.overdue??0)/100,curve:customer.portfolio_curve,reactivated:!!customer.last_sale_date&&Date.parse(today())-Date.parse(customer.last_sale_date)>180*86400000,groupOverdue:false,day:today()};
+ return {customer,context:c};
+}
+export async function GET(request:Request){try{await requireUser(request);const id=new URL(request.url).searchParams.get('id')??'';const data=await context(id);const rows=await db().prepare('SELECT * FROM credit_analyses WHERE customer_id=? ORDER BY started_at DESC,id DESC').bind(id).all<any>();const records=rows.results.map(row=>({...row,payload:unpack(row.notes)}));return Response.json({...data,records,erp:await db().prepare("SELECT note,occurred_at FROM analysis_events WHERE customer_id=? AND event_type='erp_updated' ORDER BY occurred_at DESC LIMIT 1").bind(id).first(),revision:await version(id)},{headers:{'Cache-Control':'private, no-store'}});}catch(e){return failure(e);}}
+export async function POST(request:Request){try{
+ const user=await requireUser(request);sameOrigin(request);const body=await request.json() as any;if(JSON.stringify(body).length>45000)throw new Error('Análise muito extensa (máximo 45 KB).');
+ const id=String(body.id??''),{customer,context:c}=await context(id),d=db(),now=new Date().toISOString(),actor=`${user.name} (${user.login})`;
+ if(body.action==='erp'){
+ const note=String(body.evidence??'').trim();if(!note||note.length>2000)throw new Error('Informe a referência da atualização no ERP.');
+ const approved=await d.prepare("SELECT id FROM credit_analyses WHERE customer_id=? AND status='approved' ORDER BY approved_at DESC LIMIT 1").bind(id).first<{id:string}>();if(!approved)throw new Error('Registre uma aprovação antes de confirmar o ERP.');
+ await d.batch([d.prepare('INSERT INTO analysis_events(id,customer_id,analysis_id,event_type,from_state,to_state,responsible,note,occurred_at) VALUES(?,?,?,?,?,?,?,?,?)').bind(crypto.randomUUID(),id,approved.id,'erp_updated','approved','approved',actor,note,now),d.prepare('INSERT INTO audit_events(id,user_id,user_name,action,entity_type,entity_id,details,occurred_at) VALUES(?,?,?,?,?,?,?,?)').bind(crypto.randomUUID(),user.id,user.name,'erp_updated','analysis',id,note,now)]);return Response.json({ok:true});
+ }
+ const open=await d.prepare("SELECT * FROM credit_analyses WHERE customer_id=? AND status IN ('in_progress','awaiting_approval') ORDER BY started_at DESC LIMIT 1").bind(id).first<any>();
+ const revision=await version(id);if(body.revision!==revision)throw new Error('Esta análise foi alterada por outra pessoa. Reabra a tela para carregar a versão atual.');
+ const ops:any[]=[];let analysisId=open?.id??crypto.randomUUID();let input:Input={...initialInput,...body.input};let approval:any=null;
+ if(body.action==='approve'){
+  if(!open||open.status!=='awaiting_approval')throw new Error('Não há recomendação aguardando aprovação.');const saved=unpack(open.notes);if(!saved)throw new Error('Esta análise deve ser refeita no formulário da política v6.0.');input=saved.input;
+  const result=calculate(input,c);if(!result.ready)throw new Error(result.pending.join(' '));
+  if(JSON.stringify(result)!==JSON.stringify(saved.result))throw new Error('A posição ou a data mudou. Recalcule e envie uma nova recomendação antes de aprovar.');
+  approval={authority:String(body.authority??''),name:String(body.approver??'').trim(),evidence:String(body.evidence??'').trim()};
+  if(approval.authority!==result.authority||!approval.name||!approval.evidence)throw new Error(`Registre o aprovador de ${result.authority} e a referência da decisão formal.`);
+  if(input.directorReferred&&!approval.evidence.trim())throw new Error('A Diretoria deve assumir o risco por escrito.');
+ }else if(!['draft','submit'].includes(body.action))throw new Error('Ação inválida.');
+ const result=calculate(input,c);
+ if(body.action!=='draft'&&!result.ready)throw new Error(result.pending.join(' '));
+ const br=(v:number)=>v.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+ const report=[`Política King Foods v6.0 · ${c.day} · Analista: ${actor}`,`Pedido: ${br(input.requested??0)} / ${input.requestedTerm} dias.`, `Conferências: ${input.checks}`,`Contato validado: ${input.contactEvidence}`,`SPC: ${input.spc??'não informado'} (${input.spcDate||'sem data'}); Serasa: ${input.serasa??'não informado'} (${input.serasaDate||'sem data'}). Fonte usada: ${result.source??'pendente'}.`,`Pontuação: ${result.score}/100; classe ${result.rank}. Justificativa: ${input.justification}`,`Principal recebido em 6 meses: ${br(input.received??0)}; pico quitado: ${br(input.peak??0)}.`,...Object.entries(result.caps).map(([k,v])=>`${k}: ${br(v)}`),`Limite anterior: ${br(c.currentLimit)}; prazo anterior: ${c.currentTerm} dias.`,`Recomendação: ${br(result.limit)} / ${result.term} dias. Alçada: ${result.authority}.`,`Riscos e mitigadores: ${input.risks}`,`Validade proposta: ${result.validity??'sem crédito'}. Próxima revisão: ${result.nextReview}.`,...result.warnings,...result.pending,approval?`Decisão registrada por ${actor}: ${approval.name} (${approval.authority}). Referência: ${approval.evidence}. Atualizar ERP e registrar confirmação.`:'Recomendação sujeita à conferência e aprovação.'].join('\n');
+ const notes=marker+JSON.stringify({savedAt:now,input,result,report,context:c,...(approval?{approval}:{})});const status=body.action==='approve'?'approved':body.action==='submit'?'awaiting_approval':'in_progress';
+ ops.push(d.prepare('INSERT INTO analysis_events(id,customer_id,analysis_id,event_type,from_state,to_state,responsible,note,occurred_at) VALUES(?,?,?,?,?,?,?,?,?)').bind('policy-version:'+id+':'+revision,id,open?.id??null,'version_guard',open?.status??null,status,actor,'Versão registrada para impedir gravação concorrente.',now));
+ // Previous snapshots remain in the event log even when a draft is revised.
+ if(open)ops.push(d.prepare('INSERT INTO analysis_events(id,customer_id,analysis_id,event_type,from_state,to_state,responsible,note,occurred_at) VALUES(?,?,?,?,?,?,?,?,?)').bind(crypto.randomUUID(),id,analysisId,'previous_snapshot',open.status,open.status,actor,open.notes,now));
+ if(open)ops.push(d.prepare('UPDATE credit_analyses SET status=?,notes=?,outcome=?,proposed_limit=?,proposed_term_days=?,submitted_at=?,submitted_by=?,approved_at=?,approved_by=? WHERE id=?').bind(status,notes,result.limit?'aprovar':'sem_credito',Math.round(result.limit*100),result.term,status==='in_progress'?null:now,status==='in_progress'?null:actor,status==='approved'?now:null,status==='approved'?actor:null,analysisId));
+ else ops.push(d.prepare('INSERT INTO credit_analyses(id,customer_id,status,mode,started_at,started_by,notes,outcome,proposed_limit,proposed_term_days,submitted_at,submitted_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)').bind(analysisId,id,status,'individual',now,actor,notes,result.limit?'aprovar':'sem_credito',Math.round(result.limit*100),result.term,status==='awaiting_approval'?now:null,status==='awaiting_approval'?actor:null));
+ if(status==='approved')ops.push(d.prepare('UPDATE customers SET risk_class=?,credit_limit=?,credit_term_days=?,updated_at=? WHERE id=?').bind(result.rank,Math.round(result.limit*100),result.term,now,id));
+ ops.push(d.prepare('INSERT INTO analysis_events(id,customer_id,analysis_id,event_type,from_state,to_state,responsible,note,occurred_at) VALUES(?,?,?,?,?,?,?,?,?)').bind(crypto.randomUUID(),id,analysisId,'policy_'+body.action,open?.status??null,status,actor,notes,now));
+ ops.push(d.prepare('INSERT INTO audit_events(id,user_id,user_name,action,entity_type,entity_id,details,occurred_at) VALUES(?,?,?,?,?,?,?,?)').bind(crypto.randomUUID(),user.id,user.name,'policy_'+body.action,'analysis',id,report.slice(0,3000),now));
+ await d.batch(ops);return Response.json({ok:true,result});
+}catch(e){return failure(e);}}

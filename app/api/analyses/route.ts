@@ -35,7 +35,7 @@ export async function GET(request:Request){try{
 export async function POST(request:Request){try{
     const authUser=await requireUser(request);
  sameOrigin(request);const body=await request.json() as Record<string,unknown>;
- const action=String(body.action??'');const ids=Array.isArray(body.customer_ids)?body.customer_ids:typeof body.customer_id==='string'?[body.customer_id]:[];
+ const action=String(body.action??'');if(action==='submit'||action==='approve')throw new Error('Use a análise guiada individual: cada cliente exige evidências, cálculo e aprovação próprios pela política v6.0.');const ids=Array.isArray(body.customer_ids)?body.customer_ids:typeof body.customer_id==='string'?[body.customer_id]:[];
  if(!ids.length||ids.length>50||ids.some(id=>typeof id!=='string'||!id)||new Set(ids).size!==ids.length)throw new Error('Selecione de 1 a 50 clientes diferentes.');
  const responsible=String(body.responsible??'').trim();if(!responsible||responsible.length>120)throw new Error('Informe o responsável pela análise.');
  const actor=`${authUser.name} (${authUser.login})`;
