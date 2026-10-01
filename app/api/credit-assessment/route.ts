@@ -1,47 +1,41 @@
 import {requireUser} from '@/lib/auth';
 import {db,failure,sameOrigin} from '@/lib/server';
 import {today} from '@/lib/board';
-import {calculate,initialInput,marker,unpack,type Input,type Context} from '@/lib/credit-policy';
-async function fingerprint(value:string){return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value))),b=>b.toString(16).padStart(2,'0')).join('');}
-async function version(id:string){const row=await db().prepare('SELECT id,status,notes FROM credit_analyses WHERE customer_id=? ORDER BY started_at DESC,id DESC LIMIT 1').bind(id).first();return fingerprint(JSON.stringify(row));}
-async function context(id:string){
- const d=db(),customer=await d.prepare('SELECT * FROM customers WHERE id=?').bind(id).first<any>();if(!customer)throw new Error('Cliente não encontrado.');
- const sums=await d.prepare("SELECT COALESCE(SUM(amount),0) AS exposure,COALESCE(SUM(CASE WHEN due<? THEN amount ELSE 0 END),0) AS overdue FROM cards WHERE customer_id=? AND kind='title' AND paid=0 AND archived_at IS NULL").bind(today(),id).first<any>();
- const c:Context={complete:!!(customer.name&&customer.tax_id&&customer.photo_key&&customer.payer_name&&customer.phone&&customer.payer_contact&&(customer.delivery_address||customer.address)&&customer.address_confirmed),currentLimit:customer.credit_limit/100,currentTerm:customer.credit_term_days,exposure:Number(sums?.exposure??0)/100,overdue:Number(sums?.overdue??0)/100,curve:customer.portfolio_curve,reactivated:!!customer.last_sale_date&&Date.parse(today())-Date.parse(customer.last_sale_date)>180*86400000,groupOverdue:false,day:today()};
- return {customer,context:c};
+import type {AnalysisRecord} from '@/lib/analysis';
+import {calculate,initialInput,MODEL,marker,unpack,displayNotes,type Input,type Context} from '@/lib/credit-policy';
+async function hash(value:string){return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value))),b=>b.toString(16).padStart(2,'0')).join('');}
+async function data(id:string){
+ const d=db(),customer=await d.prepare('SELECT * FROM customers WHERE id=?').bind(id).first<Record<string,any>>();if(!customer)throw new Error('Cliente não encontrado.');
+ const requirements:[string,boolean][]=[['Código do cliente',!!String(customer.customer_code??'').trim()],['Nome do titular',!!String(customer.name??'').trim()],['CPF/CNPJ',!!String(customer.tax_id??'').trim()],['Responsável pelo pagamento',!!String(customer.payer_name??'').trim()],['Telefone',!!String(customer.phone??'').trim()],['WhatsApp ou e-mail',!!String(customer.payer_contact??'').trim()],['Endereço de entrega',!!String(customer.delivery_address??'').trim()],['Endereço confirmado',customer.address_confirmed===1],['Foto da fachada/local',!!String(customer.photo_key??'').trim()]];
+ const missingRegistration=requirements.filter(([,present])=>!present).map(([label])=>label);
+ const context:Context={day:today(),customerId:id,registrationComplete:missingRegistration.length===0,missingRegistration};
+ const result=await d.prepare('SELECT * FROM credit_analyses WHERE customer_id=? ORDER BY started_at DESC,id DESC LIMIT 30').bind(id).all<AnalysisRecord>();
+ const records=result.results.map(row=>({...row,payload:unpack(String(row.notes)),report:displayNotes(String(row.notes))}));
+ const revision=await hash(JSON.stringify({customerUpdated:customer.updated_at,latest:records[0]??null}));
+ return {customer,context,records,revision};
 }
-export async function GET(request:Request){try{await requireUser(request);const id=new URL(request.url).searchParams.get('id')??'';const data=await context(id);const rows=await db().prepare('SELECT * FROM credit_analyses WHERE customer_id=? ORDER BY started_at DESC,id DESC').bind(id).all<any>();const records=rows.results.map(row=>({...row,payload:unpack(row.notes)}));return Response.json({...data,records,erp:await db().prepare("SELECT note,occurred_at FROM analysis_events WHERE customer_id=? AND event_type='erp_updated' ORDER BY occurred_at DESC LIMIT 1").bind(id).first(),revision:await version(id)},{headers:{'Cache-Control':'private, no-store'}});}catch(e){return failure(e);}}
+export async function GET(request:Request){try{await requireUser(request);return Response.json(await data(new URL(request.url).searchParams.get('id')??''),{headers:{'Cache-Control':'private, no-store'}});}catch(e){return failure(e);}}
 export async function POST(request:Request){try{
- const user=await requireUser(request);sameOrigin(request);const body=await request.json() as any;if(JSON.stringify(body).length>45000)throw new Error('Análise muito extensa (máximo 45 KB).');
- const id=String(body.id??''),{customer,context:c}=await context(id),d=db(),now=new Date().toISOString(),actor=`${user.name} (${user.login})`;
- if(body.action==='erp'){
- const note=String(body.evidence??'').trim()||'Atualização no ERP confirmada pelo usuário autenticado.';if(note.length>2000)throw new Error('Informe a referência da atualização no ERP.');
- const approved=await d.prepare("SELECT id FROM credit_analyses WHERE customer_id=? AND status='approved' ORDER BY approved_at DESC LIMIT 1").bind(id).first<{id:string}>();if(!approved)throw new Error('Registre uma aprovação antes de confirmar o ERP.');
- await d.batch([d.prepare('INSERT INTO analysis_events(id,customer_id,analysis_id,event_type,from_state,to_state,responsible,note,occurred_at) VALUES(?,?,?,?,?,?,?,?,?)').bind(crypto.randomUUID(),id,approved.id,'erp_updated','approved','approved',actor,note,now),d.prepare('INSERT INTO audit_events(id,user_id,user_name,action,entity_type,entity_id,details,occurred_at) VALUES(?,?,?,?,?,?,?,?)').bind(crypto.randomUUID(),user.id,user.name,'erp_updated','analysis',id,note,now)]);return Response.json({ok:true});
- }
- const open=await d.prepare("SELECT * FROM credit_analyses WHERE customer_id=? AND status IN ('in_progress','awaiting_approval') ORDER BY started_at DESC LIMIT 1").bind(id).first<any>();
- const revision=await version(id);if(body.revision!==revision)throw new Error('Esta análise foi alterada por outra pessoa. Reabra a tela para carregar a versão atual.');
- const ops:any[]=[];let analysisId=open?.id??crypto.randomUUID();let input:Input={...initialInput,...body.input};let approval:any=null;
- if(body.action==='approve'){
-  if(!open||open.status!=='awaiting_approval')throw new Error('Não há recomendação aguardando aprovação.');const saved=unpack(open.notes);if(!saved)throw new Error('Esta análise deve ser refeita no formulário da política v6.0.');input=saved.input;
-  const result=calculate(input,c);if(!result.ready)throw new Error(result.pending.join(' '));
-  if(JSON.stringify(result)!==JSON.stringify(saved.result))throw new Error('A posição ou a data mudou. Recalcule e envie uma nova recomendação antes de aprovar.');
-  approval={authority:String(body.authority??''),name:String(body.approver??'').trim()||user.name,evidence:String(body.evidence??'').trim()};
-  if(approval.authority!==result.authority)throw new Error(`Registre o aprovador de ${result.authority} e a referência da decisão formal.`);
-
- }else if(!['draft','submit'].includes(body.action))throw new Error('Ação inválida.');
- const result=calculate(input,c);
- if(body.action!=='draft'&&!result.ready)throw new Error(result.pending.join(' '));
- const br=(v:number|null)=>v===null?'Não informado / não calculado':v.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
- const report=[`Fórmulas King Foods v6.0 · ${c.day} · Analista: ${actor} · ${result.partial?'Análise parcial, baseada apenas nos dados informados':'Cálculos completos'}`,`Pedido: ${br(input.requested)} / ${input.requestedTerm} dias.`, `SPC: ${input.spc??'não informado'} (${input.spcDate||'sem data'}); Serasa: ${input.serasa??'não informado'} (${input.serasaDate||'sem data'}). Fonte usada: ${result.source??'pendente'}.`,`Pontuação: ${result.score??"não calculada"}/100; classe ${result.rank??"não calculada"}.`,`Principal recebido em 6 meses: ${br(input.received)}; pico quitado: ${br(input.peak)}.`,...Object.entries(result.caps).map(([k,v])=>`${k}: ${br(v)}`),`Limite anterior: ${br(c.currentLimit)}; prazo anterior: ${c.currentTerm} dias.`,`Recomendação: ${br(result.limit)} / ${result.term??"não calculado"} dias. Alçada: ${result.authority}.`,`Riscos e mitigadores: ${input.risks}`,`Validade proposta: ${result.validity??'não calculada'}. Próxima revisão: ${result.nextReview??'não calculada'}.`,...result.warnings,...result.pending,approval?`Decisão registrada por ${actor}: ${approval.name} (${approval.authority}). Referência: ${approval.evidence}. Atualizar ERP e registrar confirmação.`:'Recomendação sujeita à conferência e aprovação.'].join('\n');
- const notes=marker+JSON.stringify({savedAt:now,input,result,report,context:c,...(approval?{approval}:{})});const status=body.action==='approve'?(result.partial?'recorded':'approved'):body.action==='submit'?'awaiting_approval':'in_progress';
- ops.push(d.prepare('INSERT INTO analysis_events(id,customer_id,analysis_id,event_type,from_state,to_state,responsible,note,occurred_at) VALUES(?,?,?,?,?,?,?,?,?)').bind('policy-version:'+id+':'+revision,id,open?.id??null,'version_guard',open?.status??null,status,actor,'Versão registrada para impedir gravação concorrente.',now));
- // Previous snapshots remain in the event log even when a draft is revised.
- if(open)ops.push(d.prepare('INSERT INTO analysis_events(id,customer_id,analysis_id,event_type,from_state,to_state,responsible,note,occurred_at) VALUES(?,?,?,?,?,?,?,?,?)').bind(crypto.randomUUID(),id,analysisId,'previous_snapshot',open.status,open.status,actor,open.notes,now));
- if(open)ops.push(d.prepare('UPDATE credit_analyses SET status=?,notes=?,outcome=?,proposed_limit=?,proposed_term_days=?,submitted_at=?,submitted_by=?,approved_at=?,approved_by=? WHERE id=?').bind(status,notes,result.limit===null?'manter':result.limit?'aprovar':'sem_credito',(result.limit===null?null:Math.round(result.limit*100)),result.term,status==='in_progress'?null:now,status==='in_progress'?null:actor,body.action==='approve'?now:null,body.action==='approve'?actor:null,analysisId));
- else ops.push(d.prepare('INSERT INTO credit_analyses(id,customer_id,status,mode,started_at,started_by,notes,outcome,proposed_limit,proposed_term_days,submitted_at,submitted_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)').bind(analysisId,id,status,'individual',now,actor,notes,result.limit===null?'manter':result.limit?'aprovar':'sem_credito',(result.limit===null?null:Math.round(result.limit*100)),result.term,status==='awaiting_approval'?now:null,status==='awaiting_approval'?actor:null));
- if(body.action==='approve')ops.push(d.prepare('UPDATE customers SET risk_class=COALESCE(?,risk_class),credit_limit=COALESCE(?,credit_limit),credit_term_days=COALESCE(?,credit_term_days),updated_at=? WHERE id=?').bind(result.rank,(result.limit===null?null:Math.round(result.limit*100)),result.term,now,id));
- ops.push(d.prepare('INSERT INTO analysis_events(id,customer_id,analysis_id,event_type,from_state,to_state,responsible,note,occurred_at) VALUES(?,?,?,?,?,?,?,?,?)').bind(crypto.randomUUID(),id,analysisId,'policy_'+body.action,open?.status??null,status,actor,notes,now));
- ops.push(d.prepare('INSERT INTO audit_events(id,user_id,user_name,action,entity_type,entity_id,details,occurred_at) VALUES(?,?,?,?,?,?,?,?)').bind(crypto.randomUUID(),user.id,user.name,'policy_'+body.action,'analysis',id,report.slice(0,3000),now));
+ const user=await requireUser(request);sameOrigin(request);const text=await request.text();if(text.length>1_200_000)throw new Error('Relatórios muito extensos. Reduza o arquivo para até 5.000 linhas.');
+ const body=JSON.parse(text),id=String(body.id??''),current=await data(id),d=db(),now=new Date().toISOString(),actor=`${user.name} (${user.login})`;
+ if(!['save','apply'].includes(body.action))throw new Error('Ação inválida para o novo modelo de crédito.');
+ if(body.revision!==current.revision)throw new Error('O cadastro ou a análise mudou. Reabra a tela para carregar os dados atuais.');
+ const input:Input={...initialInput,...body.input};const result=calculate(input,current.context);
+ if(body.action==='apply'&&result.rank===null&&result.limit.value===null)throw new Error('Não há Rank ou limite calculado para atualizar. Você pode salvar o rascunho.');
+ const applied=body.action==='apply',status=applied?(result.rankReady?'approved':'recorded'):'in_progress';
+ const money=(v:number|null)=>v===null?'não calculado':(v/100).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+ const report=[`Modelo ${MODEL} · ${now} · ${actor}`,`Tipo: ${input.kind==='new'?'Cliente Novo':input.kind==='history'?'Cliente com Histórico / Reanálise':'não selecionado'}`,...result.criteria.map(r=>`${r.label}: ${r.points??'não informado'} pontos`),`Total: ${result.totalScore??'parcial ('+result.subtotal+')'}; Rank: ${result.rank??'não calculado'} ${result.rankLabel??''}.`, `Pontualidade: ${result.punctuality.onTime} no prazo / ${result.punctuality.analyzed} analisados; ${result.punctuality.late} atrasados.`,`Compras únicas de ${result.limit.start} a ${result.limit.end}: ${result.limit.count}.`,`Total comprado (somente Valor Parcela): ${money(result.limit.total)}; média por compra: ${money(result.limit.average)}.`,`Máximo de compras em aberto: ${input.maxOpenPurchases??'não informado'}; limite sugerido: ${money(result.limit.value)}.`,`Limite independente do Rank e das consultas externas. Nenhuma fórmula ou teto anterior aplicado.`,`Arquivo de compras: ${input.purchases?.fileName??'não importado'}; títulos pagos: ${input.paid?.fileName??'não importado'}.`,applied?'Resultados calculados aplicados ao cadastro. Campos sem resultado preservados.':'Rascunho; cadastro não alterado.'].join('\n');
+ const notes=marker+JSON.stringify({model:MODEL,savedAt:now,input,result,report,context:current.context});
+ if(new TextEncoder().encode(notes).length>1_500_000)throw new Error('O histórico importado ficou muito extenso. Use relatórios menores para esta análise.');
+ const open=current.records.find(r=>['in_progress','awaiting_approval'].includes(r.status)),analysisId=open?.id??crypto.randomUUID();
+ const ops:any[]=[];
+ ops.push(d.prepare('INSERT INTO analysis_events(id,customer_id,analysis_id,event_type,from_state,to_state,responsible,note,occurred_at) VALUES(?,?,?,?,?,?,?,?,?)').bind('credit-v2:'+id+':'+current.revision,id,open?.id??null,'version_guard',open?.status??null,status,actor,'Gravação da versão atual.',now));
+ if(open){
+  ops.push(d.prepare('INSERT INTO analysis_events(id,customer_id,analysis_id,event_type,from_state,to_state,responsible,note,occurred_at) VALUES(?,?,?,?,?,?,?,?,?)').bind(crypto.randomUUID(),id,analysisId,'previous_snapshot',open.status,open.status,actor,open.notes,now));
+  ops.push(d.prepare('UPDATE credit_analyses SET status=?,notes=?,outcome=?,proposed_limit=?,proposed_term_days=NULL,submitted_at=?,submitted_by=?,approved_at=?,approved_by=? WHERE id=?').bind(status,notes,result.limit.value===null?'manter':'aprovar',result.limit.value,applied?now:null,applied?actor:null,applied?now:null,applied?actor:null,analysisId));
+ }else ops.push(d.prepare('INSERT INTO credit_analyses(id,customer_id,status,mode,started_at,started_by,notes,outcome,proposed_limit,proposed_term_days,approved_at,approved_by) VALUES(?,?,?,?,?,?,?,?,?,NULL,?,?)').bind(analysisId,id,status,'individual',now,actor,notes,result.limit.value===null?'manter':'aprovar',result.limit.value,applied?now:null,applied?actor:null));
+ if(applied)ops.push(d.prepare('UPDATE customers SET risk_class=COALESCE(?,risk_class),credit_limit=COALESCE(?,credit_limit),updated_at=? WHERE id=?').bind(result.rank,result.limit.value,now,id));
+ ops.push(d.prepare('INSERT INTO analysis_events(id,customer_id,analysis_id,event_type,from_state,to_state,responsible,note,occurred_at) VALUES(?,?,?,?,?,?,?,?,?)').bind(crypto.randomUUID(),id,analysisId,'credit_v2_'+body.action,open?.status??null,status,actor,report,now));
+ ops.push(d.prepare('INSERT INTO audit_events(id,user_id,user_name,action,entity_type,entity_id,details,occurred_at) VALUES(?,?,?,?,?,?,?,?)').bind(crypto.randomUUID(),user.id,user.name,'credit_v2_'+body.action,'analysis',id,report.slice(0,3000),now));
  await d.batch(ops);return Response.json({ok:true,result});
 }catch(e){return failure(e);}}

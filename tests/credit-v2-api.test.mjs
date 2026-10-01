@@ -1,0 +1,32 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {DatabaseSync} from 'node:sqlite';
+import ts from 'typescript';
+import {readFileSync} from 'node:fs';
+import {initialInput} from '../lib/credit-policy.ts';
+test('API applies independent values, authenticates attribution, preserves history and blocks stale saves',async()=>{
+ const sql=new DatabaseSync(':memory:');sql.exec(`CREATE TABLE customers(id TEXT PRIMARY KEY,customer_code TEXT,name TEXT,tax_id TEXT,photo_key TEXT,payer_name TEXT,phone TEXT,payer_contact TEXT,delivery_address TEXT,address_confirmed INTEGER,credit_limit INTEGER,credit_term_days INTEGER,risk_class TEXT,updated_at TEXT);
+ INSERT INTO customers VALUES('c','001','Cliente','123','photo','Pagador','62999999999','pagador@test','Rua A',1,500000,21,'E','2026-10-01');
+ CREATE TABLE credit_analyses(id TEXT PRIMARY KEY,customer_id TEXT,status TEXT,mode TEXT,started_at TEXT,started_by TEXT,notes TEXT,outcome TEXT,proposed_limit INTEGER,proposed_term_days INTEGER,submitted_at TEXT,submitted_by TEXT,approved_at TEXT,approved_by TEXT);
+ CREATE TABLE analysis_events(id TEXT PRIMARY KEY,customer_id TEXT,analysis_id TEXT,event_type TEXT,from_state TEXT,to_state TEXT,responsible TEXT,note TEXT,occurred_at TEXT);
+ CREATE TABLE audit_events(id TEXT PRIMARY KEY,user_id TEXT,user_name TEXT,action TEXT,entity_type TEXT,entity_id TEXT,details TEXT,occurred_at TEXT);`);
+ globalThis.__creditDb={prepare(query){let args=[];return {bind(...values){args=values;return this},async first(){return sql.prepare(query).get(...args)??null},async all(){return {results:sql.prepare(query).all(...args)}},async run(){return sql.prepare(query).run(...args)}}},async batch(ops){sql.exec('BEGIN');try{for(const op of ops)await op.run();sql.exec('COMMIT')}catch(e){sql.exec('ROLLBACK');throw e}}};
+ let source=readFileSync(new URL('../app/api/credit-assessment/route.ts',import.meta.url),'utf8').replace("import {requireUser} from '@/lib/auth';","const requireUser=async()=>({id:'u',name:'Analista',login:'analista'});").replace("import {db,failure,sameOrigin} from '@/lib/server';","const db=()=>globalThis.__creditDb;const failure=e=>Response.json({error:e.message},{status:400});const sameOrigin=()=>{};").replace("import {today} from '@/lib/board';","const today=()=> '2026-10-01';").replace("'@/lib/credit-policy'",JSON.stringify(new URL('../lib/credit-policy.ts',import.meta.url).href));
+ const js=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText;
+ const api=await import('data:text/javascript;base64,'+Buffer.from(js).toString('base64'));
+ const get=async()=>await (await api.GET(new Request('https://test/api?id=c'))).json();
+ const post=body=>api.POST(new Request('https://test/api',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:'c',...body})}));
+ const input={...initialInput,kind:'new',restriction:'restricted',openingDate:'2020-01-01',otherSupplier:true,creditScore:1000,maxOpenPurchases:3,purchases:{customerId:'c',fileName:'x.csv',customerLabel:'Cliente',rows:[{document:'1-1-1',purchase:'1-1',date:'2026-09-01',amount:2794057}]}};
+ const start=await get();assert.equal(start.context.registrationComplete,true);
+ let r=await post({input,action:'save',revision:start.revision});assert.equal(r.status,200,JSON.stringify(await r.json()));assert.equal(sql.prepare('SELECT credit_limit FROM customers').get().credit_limit,500000);
+ r=await post({input,action:'apply',revision:start.revision});assert.equal(r.status,400);
+ r=await post({input,action:'apply',revision:(await get()).revision});assert.equal(r.status,200,JSON.stringify(await r.json()));
+ assert.deepEqual({...sql.prepare('SELECT risk_class,credit_limit,credit_term_days FROM customers').get()},{risk_class:'D',credit_limit:8382171,credit_term_days:21});
+ assert.equal(sql.prepare("SELECT COUNT(*) n FROM analysis_events WHERE event_type='previous_snapshot'").get().n,1);
+ const limitOnly={...initialInput,purchases:input.purchases,maxOpenPurchases:2};r=await post({input:limitOnly,action:'apply',revision:(await get()).revision});assert.equal(r.status,200);assert.equal(sql.prepare('SELECT risk_class FROM customers').get().risk_class,'D');assert.equal(sql.prepare('SELECT credit_limit FROM customers').get().credit_limit,5588114);
+ const rankOnly={...input,purchases:null,maxOpenPurchases:null,restriction:'clear'};r=await post({input:rankOnly,action:'apply',revision:(await get()).revision});assert.equal(r.status,200);assert.equal(sql.prepare('SELECT risk_class FROM customers').get().risk_class,'A');assert.equal(sql.prepare('SELECT credit_limit FROM customers').get().credit_limit,5588114);
+ // Registration is recomputed on the server, not trusted from the browser.
+ sql.exec("UPDATE customers SET payer_name=''");r=await post({input:rankOnly,action:'save',revision:(await get()).revision});const saved=await r.json();assert.equal(saved.result.totalScore,80);
+ r=await post({input,action:'approve',revision:(await get()).revision});assert.equal(r.status,400);
+ sql.close();delete globalThis.__creditDb;
+});
