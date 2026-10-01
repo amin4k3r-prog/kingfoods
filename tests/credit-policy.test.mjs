@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {calculate,initialInput,newWeights,existingWeights} from '../lib/credit-policy.ts';
+import {calculatePolicy as calculate,initialInput,newWeights,existingWeights} from '../lib/credit-policy.ts';
 const context={complete:true,currentLimit:5000,currentTerm:7,exposure:1000,overdue:0,curve:'B',reactivated:false,groupOverdue:false,day:'2026-09-30'};
 const base={...initialInput,weekly:10000,order:5000,portfolio:1000000,dailyRevenue:100000,otherGroup:0,pendingOrder:0,requested:8000,spc:700,spcDate:'2026-09-30',points:Object.fromEntries(newWeights.map(([k,,v])=>[k,v])),justification:'Evidências registradas',checks:'Consultas e documentos conferidos',risks:'Riscos e mitigadores registrados',contactValidated:true,contactEvidence:'30/09 10h WhatsApp confirmado',categoryConfirmed:true,groupChecked:true,portfolioChecked:true,conditionsChecked:true};
 test('primeiro limite A: teto inicial, não 130 mil',()=>{const r=calculate(base,context);assert.equal(r.ready,true);assert.equal(r.limit,8000);assert.equal(r.term,7);assert.equal(r.authority,'Financeiro');});
