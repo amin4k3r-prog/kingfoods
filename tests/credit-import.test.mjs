@@ -1,0 +1,17 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import ts from 'typescript';
+import {readFileSync} from 'node:fs';
+const source=readFileSync(new URL('../lib/credit-import.ts',import.meta.url),'utf8').replace("'./credit-policy'",JSON.stringify(new URL('../lib/credit-policy.ts',import.meta.url).href));
+const js=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText;
+const {parseReport,suggestMapping,convertReport,parcelaCents,reportDate}=await import('data:text/javascript;base64,'+Buffer.from(js).toString('base64'));
+const csv='Documento;Emissão;Cliente;Valor Parcela;Juros;Multa;Desconto\n21938-2-1;01/09/2026;Cliente A;10.000,00;900;700;100\n21938-2-2;01/09/2026;Cliente A;17.940,57;500;500;0\n999-1-1;02/09/2026;Cliente B;1,00;0;0;0';
+test('maps only Valor Parcela and filters customer',()=>{const table=parseReport(csv),map=suggestMapping(table.headers),p=convertReport(table,map,'purchases','Cliente A','c','file.csv','2026-10-01');assert.equal(p.invalid.length,0);assert.equal(p.report.rows.length,2);assert.equal(p.report.rows.reduce((n,r)=>n+r.amount,0),2794057);assert.equal(p.excluded,1);assert.equal(p.report.rows[1].purchase,'21938-2')});
+test('no fallback to juros or saldo',()=>{const table=parseReport(csv),map=suggestMapping(table.headers);assert.throws(()=>convertReport(table,{...map,amount:4},'purchases','Cliente A','c','file.csv','2026-10-01'))});
+test('requires selected customer in multi-client reports',()=>{const t=parseReport(csv);assert.throws(()=>convertReport(t,suggestMapping(t.headers),'purchases','','c','file.csv','2026-10-01'))});
+test('identical duplicates excluded; divergent duplicate blocks confirmation',()=>{const t=parseReport(csv+'\n21938-2-1;01/09/2026;Cliente A;10.000,00;0;0;0\n21938-2-2;01/09/2026;Cliente A;12,00;0;0;0'),p=convertReport(t,suggestMapping(t.headers),'purchases','Cliente A','c','x','2026-10-01');assert.equal(p.duplicates,1);assert.equal(p.invalid.length,1)});
+test('paid import uses Atraso, not fees or a computed date difference',()=>{const t=parseReport('Documento;Data;Atraso\n1;01/09/2026;2\n2;02/09/2026;3');const p=convertReport(t,suggestMapping(t.headers),'paid','','c','x','2026-10-01');assert.deepEqual(p.report.rows.map(r=>r.delay),[2,3])});
+test('invalid dates and blank delays are explicit errors, never zero',()=>{const t=parseReport('Documento;Data;Atraso\n1;31/02/2026;2\n2;02/09/2026;');const p=convertReport(t,suggestMapping(t.headers),'paid','','c','x','2026-10-01');assert.equal(p.invalid.length,2)});
+test('localized currency and decimal values',()=>{for(const [s,n] of [['R$ 27.940,57',2794057],['27940.57',2794057],['1.000',100000],['0',0]])assert.equal(parcelaCents(s),n);assert.equal(parcelaCents('-1'),null);assert.equal(parcelaCents(''),null)});
+test('quoted delimiters, CRLF and newline in cells',()=>{const t=parseReport('Documento,Data,Cliente,Atraso\r\n1,01/09/2026,"Nome, Loja\nMatriz",0');assert.equal(t.rows[0][2],'Nome, Loja\nMatriz');assert.equal(t.headers.length,4)});
+test('explicit order key takes precedence over installment pattern',()=>{const t=parseReport('Documento;Pedido;Data;Valor Parcela\na;P1;01/09/2026;10,00\nb;P1;01/09/2026;20,00');const p=convertReport(t,suggestMapping(t.headers),'purchases','','c','x','2026-10-01');assert.deepEqual(p.report.rows.map(r=>r.purchase),['P1','P1'])});

@@ -3,8 +3,8 @@ import {db,failure,sameOrigin} from '@/lib/server';
 import {summary,schedule,analysisQueueSql,analysisSearchSql,type AnalysisCustomer,type AnalysisRecord} from '@/lib/analysis';
 import {today} from '@/lib/board';
 
-const outcomes=['manter','aprovar','reduzir','suspender','sem_credito'] as const;
-const labels:Record<string,string>={manter:'Condições mantidas',aprovar:'Crédito aprovado',reduzir:'Limite reduzido',suspender:'Prazo suspenso',sem_credito:'Sem crédito'};
+
+
 export async function GET(request:Request){try{
  await requireUser(request);
  const d=db(),params=new URL(request.url).searchParams,day=today();const requested=params.get('customer_id');
@@ -35,7 +35,7 @@ export async function GET(request:Request){try{
 export async function POST(request:Request){try{
     const authUser=await requireUser(request);
  sameOrigin(request);const body=await request.json() as Record<string,unknown>;
- const action=String(body.action??'');if(action==='submit'||action==='approve')throw new Error('Use a análise guiada individual: cada cliente exige evidências, cálculo e aprovação próprios pela política v6.0.');const ids=Array.isArray(body.customer_ids)?body.customer_ids:typeof body.customer_id==='string'?[body.customer_id]:[];
+ const action=String(body.action??'');if(action==='submit'||action==='approve')throw new Error('Use o novo cálculo de Rank e limite no cartão individual do cliente.');const ids=Array.isArray(body.customer_ids)?body.customer_ids:typeof body.customer_id==='string'?[body.customer_id]:[];
  if(!ids.length||ids.length>50||ids.some(id=>typeof id!=='string'||!id)||new Set(ids).size!==ids.length)throw new Error('Selecione de 1 a 50 clientes diferentes.');
  const responsible=String(body.responsible??'').trim();if(!responsible||responsible.length>120)throw new Error('Informe o responsável pela análise.');
  const actor=`${authUser.name} (${authUser.login})`;
@@ -61,30 +61,6 @@ export async function POST(request:Request){try{
    const list=records.get(id)??[];if(list.some(r=>r.status==='in_progress'||r.status==='awaiting_approval'))throw new Error(`${customer.name} já tem uma análise em andamento.`);
    const analysisId=crypto.randomUUID();operations.push(d.prepare('INSERT INTO credit_analyses(id,customer_id,batch_id,status,mode,started_at,started_by) VALUES(?,?,?,?,?,?,?)').bind(analysisId,id,batchId,'in_progress',rule.mode,now,actor));
    addEvent(customer,analysisId,summary(customer,list).state,'in_progress','started',batchId?'Análise iniciada em lote.':'Análise individual iniciada.');
-  }
- }else if(action==='submit'){
-  const notes=String(body.notes??'').trim(),outcome=String(body.outcome??'');if(!notes||notes.length>10000)throw new Error('Registre as anotações da análise.');if(!outcomes.includes(outcome as typeof outcomes[number]))throw new Error('Selecione o resultado da análise.');
-  const limit=body.proposed_limit===null||body.proposed_limit===undefined||body.proposed_limit===''?null:Number(body.proposed_limit);
-  const term=body.proposed_term_days===null||body.proposed_term_days===undefined||body.proposed_term_days===''?null:Number(body.proposed_term_days);
-  if(limit!==null&&(!Number.isSafeInteger(limit)||limit<0))throw new Error('Informe um limite válido em centavos.');
-  if(term!==null&&(!Number.isInteger(term)||term<0||term>365))throw new Error('Informe um prazo entre 0 e 365 dias.');
-  if((outcome==='aprovar'||outcome==='reduzir')&&limit===null)throw new Error('Informe o limite proposto para esta decisão.');
-  for(const id of ids){const customer=byId.get(id)!;const open=(records.get(id)??[]).find(r=>r.status==='in_progress');if(!open)throw new Error(`${customer.name} não tem análise iniciada.`);
-   if(customer.risk_class==='E'&&(outcome!=='sem_credito'||(limit??0)>0||(term??0)>0))throw new Error(`${customer.name} está na classe E e permanece sem crédito.`);
-   operations.push(d.prepare("UPDATE credit_analyses SET status='awaiting_approval',submitted_at=?,submitted_by=?,notes=?,outcome=?,proposed_limit=?,proposed_term_days=? WHERE id=? AND status='in_progress'").bind(now,actor,notes,outcome,limit,term,open.id));
-   addEvent(customer,open.id,'in_progress','awaiting_approval','submitted',`${labels[outcome]}. ${notes}`);
-  }
- }else if(action==='approve'){
-  for(const id of ids){const customer=byId.get(id)!;const list=records.get(id)??[];const open=list.find(r=>r.status==='awaiting_approval');if(!open)throw new Error(`${customer.name} não está aguardando aprovação.`);
-   if(customer.risk_class==='E'&&open.outcome!=='sem_credito')throw new Error(`${customer.name} está na classe E e permanece sem crédito.`);
-   operations.push(d.prepare("UPDATE credit_analyses SET status='approved',approved_at=?,approved_by=? WHERE id=? AND status='awaiting_approval'").bind(now,actor,open.id));
-   let limit=customer.credit_limit,term=customer.credit_term_days;
-   if(open.outcome==='sem_credito'){limit=0;term=0;}
-   else if(open.outcome==='suspender'){term=0;}
-   else if(open.outcome==='aprovar'||open.outcome==='reduzir'){limit=open.proposed_limit??limit;term=open.proposed_term_days??term;}
-   if(limit!==customer.credit_limit||term!==customer.credit_term_days)operations.push(d.prepare('UPDATE customers SET credit_limit=?,credit_term_days=?,updated_at=? WHERE id=?').bind(limit,term,now,id));
-   const next=summary({...customer,credit_limit:limit,credit_term_days:term},[{...open,status:'approved',approved_at:now},...list.filter(r=>r.id!==open.id)]);
-   addEvent(customer,open.id,'awaiting_approval',next.state,'approved',`${labels[open.outcome??'']??'Decisão aprovada'}. Próxima análise: ${next.next_analysis??'não definida'}. ${open.notes}`);
   }
  }else throw new Error('Ação de análise inválida.');
  await d.batch(operations);await audit(authUser,action,'analysis',ids.length===1?String(ids[0]):null,`Clientes: ${ids.join(', ')}; responsável informado: ${responsible}`);return Response.json({ok:true,affected:ids.length});
