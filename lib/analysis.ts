@@ -1,4 +1,5 @@
 import {today} from './board';
+import {unpack} from './credit-policy';
 
 export type Risk='A'|'B'|'C'|'D'|'E';
 export type Curve='A'|'B'|'C'|null;
@@ -26,7 +27,7 @@ export function summary(customer:AnalysisCustomer,records:AnalysisRecord[],day=t
  const last=records.find(r=>r.status==='approved')??null;
  const lastDate=last?.approved_at?localDate(last.approved_at):null;
  const anchor=lastDate??localDate(customer.created_at);
- const nextDue=rule?addMonths(anchor,rule.months):null;
+ const nextDue=(last?unpack(last.notes)?.result.nextReview:null)??(rule?addMonths(anchor,rule.months):null);
  const daysRemaining=nextDue?Math.round((Date.parse(nextDue+'T12:00:00Z')-Date.parse(day+'T12:00:00Z'))/86400000):null;
  const state:AnalysisState=!rule?'unclassified':open?.status==='awaiting_approval'?'awaiting_approval':open?'in_progress':(daysRemaining??0)<0?'overdue':(daysRemaining??0)<=30?'soon':last?'current':'pending_first';
  return {state,last_analysis:lastDate,next_analysis:nextDue,days_remaining:daysRemaining,mode:rule?.mode??null,period_months:rule?.months??null,open_analysis:open,latest_analysis:last,alert:daysRemaining!==null&&daysRemaining<0,automatic_increase_blocked:customer.risk_class==='E'||(daysRemaining!==null&&daysRemaining<0)};
@@ -49,17 +50,17 @@ export function paginateAnalyses<T extends AnalysisCustomer & ReturnType<typeof 
 // Calendar arithmetic clamps month ends, matching addMonths (not SQLite's rollover).
 export const analysisQueueSql=`WITH
  ranked AS (
-  SELECT id,customer_id,status,approved_at,
+  SELECT id,customer_id,status,approved_at,notes,
    ROW_NUMBER() OVER (PARTITION BY customer_id,CASE WHEN status='approved' THEN 'approved' ELSE 'open' END ORDER BY started_at DESC,id DESC) AS rn
   FROM credit_analyses WHERE status IN ('approved','in_progress','awaiting_approval')
  ), anchors AS (
-  SELECT c.*,o.id AS open_id,o.status AS open_status,a.id AS approved_id,
+  SELECT c.*,o.id AS open_id,o.status AS open_status,a.id AS approved_id,a.notes AS approved_notes,
    date(COALESCE(a.approved_at,c.created_at),'-3 hours') AS anchor,
    CASE WHEN c.risk_class IN ('A','B') THEN 6 WHEN c.risk_class='D' OR c.portfolio_curve='A' OR c.portfolio_curve IS NULL OR c.portfolio_curve='' THEN 1 ELSE 3 END AS months
   FROM customers c LEFT JOIN ranked o ON o.customer_id=c.id AND o.rn=1 AND o.status IN ('in_progress','awaiting_approval')
    LEFT JOIN ranked a ON a.customer_id=c.id AND a.rn=1 AND a.status='approved'
  ), due AS (
-  SELECT *,CASE WHEN risk_class IN ('A','B','C','D','E') THEN
+  SELECT *,CASE WHEN substr(approved_notes,1,length('KF_POLICY_V6'||char(10)))='KF_POLICY_V6'||char(10) AND json_valid(substr(approved_notes,length('KF_POLICY_V6'||char(10))+1)) THEN json_extract(substr(approved_notes,length('KF_POLICY_V6'||char(10))+1),'$.result.nextReview') WHEN risk_class IN ('A','B','C','D','E') THEN
    date(anchor,'start of month','+'||months||' months','+'||(min(CAST(strftime('%d',anchor) AS INTEGER),CAST(strftime('%d',date(anchor,'start of month','+'||(months+1)||' months','-1 day')) AS INTEGER))-1)||' days')
    ELSE NULL END AS next_analysis FROM anchors
  ), queue AS (
