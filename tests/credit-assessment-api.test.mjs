@@ -33,5 +33,10 @@ test('API: rascunho, envio, aprovação, histórico e proteção concorrente',as
  assert.equal(sql.prepare('SELECT COUNT(*) AS n FROM audit_events').get().n,3);
  // New analysis keeps the approved version and gets a new cycle.
  r=await post({action:'draft',revision:(await get()).revision});assert.equal(r.status,200,JSON.stringify(await r.json()));assert.equal(sql.prepare('SELECT COUNT(*) AS n FROM credit_analyses').get().n,2);
+ // Optional input: submitting and recording an empty assessment must not zero credit.
+ r=await post({action:'submit',input:initialInput,revision:(await get()).revision});assert.equal(r.status,200,JSON.stringify(await r.json()));
+ const partial=await get();r=await post({action:'approve',revision:partial.revision,authority:'Financeiro'});assert.equal(r.status,200,JSON.stringify(await r.json()));
+ const preserved=sql.prepare('SELECT credit_limit,credit_term_days,risk_class FROM customers').get();assert.deepEqual({...preserved},{credit_limit:800000,credit_term_days:7,risk_class:'A'});
+ assert.equal(sql.prepare("SELECT COUNT(*) AS n FROM credit_analyses WHERE status='recorded'").get().n,1);
  sql.close();delete globalThis.__creditTestDb;
 });

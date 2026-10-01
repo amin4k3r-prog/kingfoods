@@ -7,7 +7,7 @@ export type Context={complete:boolean;currentLimit:number;currentTerm:number;exp
 export const initialInput:Input={kind:'new',segment:'structured',points:{},justification:'',spc:null,spcDate:'',serasa:null,serasaDate:'',weekly:null,order:null,received:null,peak:null,portfolio:null,dailyRevenue:null,otherGroup:null,pendingOrder:null,months2:null,months4:null,onTime:null,lateEvents:null,growing:false,categoryConfirmed:false,portfolioChecked:false,groupChecked:false,groupOverdue:false,conditionsChecked:false,documentsDoubt:false,contactValidated:false,contactEvidence:'',additionalDocuments:false,requested:null,restriction:'none',goodHistory:false,agreement:'none',permanentBlock:false,cashUntil:'',freezeUntil:'',requestedTerm:7,incidentDate:'',settlementDate:'',maxDelay:null,shortEvents:null,prePenaltyTerm:7,checks:'',risks:'',directorReferred:false};
 function months(day:string,n:number){const d=new Date(day+'T12:00:00Z'),date=d.getUTCDate();d.setUTCDate(1);d.setUTCMonth(d.getUTCMonth()+n);const last=new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth()+1,0)).getUTCDate();d.setUTCDate(Math.min(date,last));return d.toISOString().slice(0,10);}
 const days=(date:string,day:string)=>Math.round((Date.parse(day+'T12:00:00Z')-Date.parse(date+'T12:00:00Z'))/86400000);
-export function calculate(input:Input,c:Context){
+export function calculatePolicy(input:Input,c:Context){
  const i={...initialInput,...input},pending:string[]=[],warnings:string[]=[];
  for(const [key,defaultValue] of Object.entries(initialInput)){const value=(i as unknown as Record<string,unknown>)[key];if(defaultValue!==null&&key!=='points'&&typeof value!==typeof defaultValue)throw new Error('Tipo de dado inválido: '+key);}
  if(!i.points||typeof i.points!=='object'||Array.isArray(i.points))throw new Error('Pontuação inválida.');
@@ -70,6 +70,7 @@ export function calculate(input:Input,c:Context){
  if(penaltyFreeze){limit=Math.min(limit,c.currentLimit);term=Math.min(term,c.currentTerm);}
  if(!isNew&&i.restriction==='small'&&i.goodHistory){if(c.currentLimit>Math.min(...Object.values(caps)))pending.push('Condição atual excede os tetos calculados: conferir o conflito antes de manter (7.4 e 9.3).');limit=c.currentLimit;term=Math.min(term,c.currentTerm);warnings.push('Restrição até R$ 5.000 com bom histórico: manter condição atual, congelar limite e rever em 30 dias (7.4).');}
  if(!isNew&&!!i.freezeUntil&&i.freezeUntil>=c.day){limit=Math.min(limit,c.currentLimit);term=Math.min(term,c.currentTerm);warnings.push('Limite congelado: sem aumento (16.3).');}
+ const assessedTerm=term;
  if(cash||blocked||term===0)limit=0;if(limit===0)term=0;
  const extra=i.documentsDoubt||(i.requested??0)>(i.segment==='resale'?15000:30000);
  if(extra&&!i.additionalDocuments)pending.push('Confira comprovante de compra a prazo, identidade e documento da atividade (5.4).');
@@ -78,7 +79,52 @@ export function calculate(input:Input,c:Context){
  const reviewMonths=rank==='A'||rank==='B'?6:rank==='D'||c.curve==='A'||!c.curve?1:3;
  const nextReview=i.restriction==='small'&&!isNew?new Date(Date.parse(c.day+'T12:00:00Z')+30*86400000).toISOString().slice(0,10):months(c.day,reviewMonths);
  const validity=rank==='E'?null:months(c.day,rank==='A'||rank==='B'?12:rank==='C'?6:3);
- return {version:'6.0',score,rank,source,limit,term,authority,caps,pending,warnings,ready:pending.length===0,blocked,cash,nextReview,validity,used:c.exposure+(i.pendingOrder??0),available:limit-c.exposure-(i.pendingOrder??0)};
+ return {assessedTerm,version:'6.0',score,rank,source,limit,term,authority,caps,pending,warnings,ready:pending.length===0,blocked,cash,nextReview,validity,used:c.exposure+(i.pendingOrder??0),available:limit-c.exposure-(i.pendingOrder??0)};
+}
+/** Optional analysis: absence is not zero and cannot overwrite a known customer value. */
+export function calculate(input:Input,c:Context){
+ const i={...initialInput,...input},base=calculatePolicy(i,c);
+ const isNew=i.kind==='new'||c.reactivated,weights=isNew?newWeights:existingWeights;
+ const has=(v:unknown):v is number=>typeof v==='number'&&Number.isFinite(v)&&v>=0;
+ const supplied=weights.filter(([key])=>i.points[key]!=null);
+ const scoreComplete=weights.every(([key,,max])=>has(i.points[key])&&i.points[key]!<=max);
+ const score=supplied.length?supplied.reduce((sum,[key])=>sum+(has(i.points[key])?i.points[key]!:0),0):null;
+ const rank=scoreComplete?base.rank as 'A'|'B'|'C'|'D'|'E':null;
+ const pending:string[]=[];
+ for(const [key,label] of Object.entries(numericLabels)){const value=(i as unknown as Record<string,unknown>)[key];if(value!=null&&!has(value))pending.push(`Confira ${label}: informe um número não negativo ou deixe em branco.`);}
+ for(const [key,label,max] of weights)if(i.points[key]!=null&&(!has(i.points[key])||i.points[key]!>max))pending.push(`${label}: use de 0 a ${max} pontos ou deixe em branco.`);
+ if((has(i.months2)&&i.months2>6)||(has(i.months4)&&i.months4>6)||(has(i.months2)&&has(i.months4)&&i.months4>i.months2)||(has(i.onTime)&&i.onTime>100)||[i.months2,i.months4,i.lateEvents,i.maxDelay,i.shortEvents].some(v=>v!==null&&!Number.isInteger(v)))pending.push('Confira os meses (0–6), contadores inteiros e pontualidade (0–100%).');
+ for(const key of ['spc','serasa'] as const)if(i[key]!=null&&(!has(i[key])||i[key]!>1000))pending.push(`Nota ${key.toUpperCase()}: use de 0 a 1.000 ou deixe em branco.`);
+ for(const date of [i.spcDate,i.serasaDate,i.cashUntil,i.freezeUntil,i.incidentDate,i.settlementDate])if(date&&(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!Number.isFinite(Date.parse(date))))pending.push('Confira a data informada ou deixe em branco.');
+ if(![0,7,14,21,28].includes(i.requestedTerm))pending.push('Selecione um prazo válido.');
+ const knownCash=i.segment==='personal'||rank==='E'||i.agreement==='performing'||!!i.cashUntil&&i.cashUntil>=c.day||isNew&&i.restriction!=='none';
+ const penaltyNeedsDates=!isNew&&(Number(i.lateEvents)>=2||Number(i.shortEvents)>=3||Number(i.maxDelay)>5)&&(!i.incidentDate||(Number(i.maxDelay)>5&&c.overdue===0&&!i.settlementDate));
+ let term:number|null=knownCash?0:rank&&!penaltyNeedsDates?base.assessedTerm:null;
+ if(base.blocked)term=null;
+ const exposureTerm=term??i.requestedTerm, weeks=exposureTerm/7;
+ const need=has(i.weekly)&&has(i.order)?Math.round((i.weekly*weeks+i.order)*(i.growing?1.25:1.15)*100)/100:null;
+ const classCap=rank?{A:130000,B:80000,C:40000,D:8000,E:0}[rank]*segments[i.segment].factor:null;
+ const history=rank&&(has(i.peak)||has(i.received))?Math.max(i.peak??0,(i.received??0)/26*(weeks+1))*{A:1.5,B:1.3,C:1.1,D:.8,E:0}[rank]:null;
+ const caps:Record<string,number|null>={necessidade:need,classe_segmento:classCap,[isNew?'primeiro_limite':'historico']:isNew&&rank?{A:8000,B:5000,C:3000,D:1500,E:0}[rank]*segments[i.segment].factor:history,grupo_classe:classCap!==null&&has(i.otherGroup)?Math.max(0,classCap-i.otherGroup):null,cliente_5:has(i.portfolio)?i.portfolio*.05:null,grupo_8:has(i.portfolio)&&has(i.otherGroup)?Math.max(0,i.portfolio*.08-i.otherGroup):null,carteira_20:has(i.dailyRevenue)&&has(i.portfolio)?Math.max(0,i.dailyRevenue*20-i.portfolio+c.exposure):null};
+ const knownCaps=Object.values(caps).filter(has);
+ let limit:number|null=knownCash?0:rank&&term!==null&&need!==null&&knownCaps.length?Math.floor(Math.max(0,Math.min(...knownCaps))/500)*500:null;
+ if(!isNew&&['relevant','protest'].includes(i.restriction)){if(has(i.order)&&limit!==null)limit=Math.min(limit,Math.floor(i.order/500)*500);else limit=null;}
+ if(!isNew&&i.restriction==='small'&&i.goodHistory){limit=c.currentLimit;term=c.currentTerm;}
+ if(limit!==null&&((i.freezeUntil&&i.freezeUntil>=c.day)||(!isNew&&i.lateEvents===2&&i.incidentDate&&Date.parse(i.incidentDate)+60*86400000>=Date.parse(c.day))))limit=Math.min(limit,c.currentLimit);
+ if(base.blocked||penaltyNeedsDates)limit=null;
+ if(limit===0)term=0;
+ const omitted=Object.entries(caps).filter(([,v])=>v===null).map(([key])=>key);
+ const partial=!scoreComplete||limit===null||term===null||omitted.length>0;
+ const warnings:string[]=[];
+ if(partial)warnings.push('Análise parcial: somente os dados preenchidos foram utilizados. Campos sem informação não foram considerados zero.');
+ if(omitted.length)warnings.push('Há tetos não calculados por falta de dados. O limite estimado considera somente os tetos disponíveis.');
+ if(base.blocked)warnings.push('Há impedimento de venda registrado. A análise pode ser salva; limite e prazo atuais serão preservados.');
+ if(penaltyNeedsDates)warnings.push('Sem as datas do atraso e da baixa, o período da penalidade não foi calculado.');
+ if(!base.source&&(i.spc!==null||i.serasa!==null))warnings.push('Nota externa registrada, mas sem data válida de até 90 dias; não utilizada como fonte válida.');
+ if(!scoreComplete&&supplied.length)warnings.push('Pontuação parcial: a classe não é atribuída até que todos os itens da pontuação sejam informados.');
+ if(!partial)warnings.push(...base.warnings);
+ const authority=i.directorReferred?'Diretoria':rank==='D'||rank==='E'||(limit??0)>30000||term===28||['protest','judicial'].includes(i.restriction)?'Gerência':isNew||(limit??0)>5000||(term??0)>=14||limit!==null&&limit<c.currentLimit||i.restriction==='relevant'?'Financeiro':'Crédito e Cobrança';
+ return {...base,score,scoreComplete,rank,limit,term,authority,caps,partial,omitted,pending,warnings,ready:pending.length===0,nextReview:rank?base.nextReview:null,validity:rank?base.validity:null,used:c.exposure+(i.pendingOrder??0),available:limit===null?null:limit-c.exposure-(i.pendingOrder??0)};
 }
 export const numericLabels:Record<string,string>={weekly:'Compra média semanal (R$)',order:'Pedido médio (R$)',received:'Principal recebido em 6 meses (R$)',peak:'Maior exposição quitada corretamente (R$)',portfolio:'Carteira aberta completa (R$)',dailyRevenue:'Faturamento médio diário (R$)',otherGroup:'Exposição dos outros integrantes do grupo (R$)',pendingOrder:'Pedido em análise (R$)',requested:'Limite solicitado (R$)',months2:'Meses com 2 ou mais pedidos (últimos 6)',months4:'Meses com 4 ou mais pedidos (últimos 6)',onTime:'Títulos pagos no prazo (%)',maxDelay:'Maior atraso do evento em análise (dias)',shortEvents:'Atrasos de até 5 dias no semestre',lateEvents:'Atrasos acima de 5 dias (últimos 6 meses)'};
 export const marker='KF_POLICY_V6\n';
