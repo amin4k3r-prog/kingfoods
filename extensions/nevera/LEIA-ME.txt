@@ -1,0 +1,28 @@
+KING FOODS → NEVERA — versão 1.0.0
+
+INSTALAÇÃO NO CHROME OU EDGE
+1. Extraia todo o ZIP em uma pasta permanente.
+2. Abra chrome://extensions (no Edge, edge://extensions).
+3. Ative Modo do desenvolvedor.
+4. Clique em Carregar sem compactação e escolha a pasta que contém manifest.json.
+5. Abra seu site King Foods do GitHub/Cloudflare. No ícone da extensão, clique em Conectar o site desta aba e aceite acesso somente a esse site.
+6. Atualize a página King Foods.
+
+COMO USAR
+1. Deixe o Nevera conectado na empresa PROATIVA ALIMENTOS LTDA (10.680.812/0001-89), no mesmo navegador/perfil.
+2. Na King Foods, abra um cadastro. No resumo Limite cadastrado, clique em Atualizar no Nevera.
+3. A extensão mostra o valor salvo no cadastro, cliente e observação. Não recalcula o limite.
+4. Confira e marque a confirmação. Clique em Localizar e preencher no Nevera.
+5. Caso o Nevera esteja com outro cadastro aberto, abra o cliente correto e tente novamente. A extensão recusa preencher código/CPF/CNPJ diferentes.
+6. No Nevera, confira o limite e a observação preenchidos. Clique em Adicionar na aba Observação e em Gravar no cadastro. Confira a mensagem de gravação do próprio Nevera.
+
+A extensão nunca clica em Gravar nem afirma que a gravação ocorreu. Não apaga observações existentes. Solicitações expiram após 15 minutos. Reabra o cadastro na King Foods para gerar uma nova solicitação após alterar o limite. Um relatório apenas importado ou rascunho não muda o limite salvo: primeiro aplique o resultado na King Foods.
+
+SE NÃO LOCALIZAR
+Abra Cadastros → Parceiros → Cliente → Cadastro de cliente no Nevera e procure o código do cliente. Abra seu cadastro e volte à aba da extensão para tentar o preenchimento. Se houver uma edição em andamento, conclua ou cancele antes. Uma falha após preencher o limite pode deixar uma edição não salva: confira a tela antes de repetir.
+
+PRIVACIDADE
+A sessão de login permanece no seu navegador. Não lemos nem guardamos senha, cookies ou tokens do Nevera. As solicitações ficam na memória de sessão da extensão e somem ao fechar o navegador ou descartar. A extensão só se conecta ao site King Foods que você autorizar e ao Nevera. Não envia dados a servidores externos. O site registra a preparação, não uma suposta gravação no Nevera.
+
+VALIDAÇÃO
+Compatível com a estrutura de cadastro Nevera MEAT 4.44.0 observada. Testes automatizados cobrem identidade, valor e validade das solicitações. A instalação real da extensão e o fluxo completo com gravação precisam ser conferidos no seu navegador; nenhum cliente real foi alterado como teste.
