@@ -1,5 +1,6 @@
 'use client';
 import {useEffect,useState} from 'react';
+import {NeveraButton} from './nevera-button';
 import {CreditAssessment} from './credit-assessment';
 import {Plus,Wallet,MapPin,Phone,UserRound,ImagePlus,Upload,Search,Trash2} from 'lucide-react';
 import {AlertDialog,AlertDialogAction,AlertDialogCancel,AlertDialogContent,AlertDialogDescription,AlertDialogFooter,AlertDialogHeader,AlertDialogTitle} from '@/components/ui/alert-dialog';
@@ -52,7 +53,7 @@ export function CustomerWallet({cards,onSaved,onOpenTitle}:Props){
 
  <Dialog open={open} onOpenChange={value=>{if(!busy)setOpen(value)}}><DialogContent className="editor customer-editor customer-editor-wide"><div className="customer-detail-heading"><span className="customer-detail-eyebrow">CARTEIRA • VISÃO DO CLIENTE</span><DialogTitle>{editing?`Cliente #${editing.customer_code} — ${editing.name}`:'Cadastrar cliente'}</DialogTitle><DialogDescription>Cadastro, crédito e cobranças em um só lugar.</DialogDescription></div>
  <div className="customer-detail-metrics">
-  <article><span>Limite cadastrado</span><strong>{money(editing?.credit_limit??0)}</strong><small>Valor salvo no cadastro</small></article>
+  <article><span>Limite cadastrado</span><strong>{money(editing?.credit_limit??0)}</strong><small>Valor salvo no cadastro</small>{editing&&<NeveraButton customerId={editing.id}/>}</article>
   <article><span>Em aberto</span><strong>{money(openAmount)}</strong><small>{linkedTitles.length} título(s) não pagos</small></article>
   <article className={overdueTitles.length?'metric-overdue':''}><span>Vencido</span><strong>{money(overdueAmount)}</strong><small>{overdueTitles.length} título(s) com vencimento anterior a hoje</small></article>
   <article><span>Perfil de crédito</span><strong>{editing?.risk_class? 'Classe '+editing.risk_class:'Sem classe'}</strong><small>Curva {editing?.portfolio_curve??'não informada'}</small></article>

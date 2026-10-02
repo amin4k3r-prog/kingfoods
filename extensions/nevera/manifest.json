@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "King Foods → Nevera",
+  "version": "1.0.0",
+  "minimum_chrome_version": "116",
+  "description": "Recebe o limite aprovado da King Foods e preenche o cadastro aberto no Nevera para conferência e gravação pelo usuário.",
+  "permissions": ["storage", "scripting", "activeTab"],
+  "host_permissions": ["https://app.nevera.io/*"],
+  "optional_host_permissions": ["https://*/*"],
+  "background": {"service_worker": "worker.js", "type": "module"},
+  "action": {"default_popup": "popup.html", "default_title": "King Foods → Nevera"}
+}
