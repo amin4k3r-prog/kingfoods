@@ -28,5 +28,9 @@ test('API applies independent values, authenticates attribution, preserves histo
  // Registration is recomputed on the server, not trusted from the browser.
  sql.exec("UPDATE customers SET payer_name=''");r=await post({input:rankOnly,action:'save',revision:(await get()).revision});const saved=await r.json();assert.equal(saved.result.totalScore,80);
  r=await post({input,action:'approve',revision:(await get()).revision});assert.equal(r.status,400);
+ const selected={...input,latestPurchaseCount:1,purchases:{...input.purchases,rows:[...input.purchases.rows,{document:'new',purchase:'new',date:'2026-09-30',amount:10000}]}};
+ r=await post({input:selected,action:'apply',revision:(await get()).revision});assert.equal(r.status,200);assert.equal(sql.prepare('SELECT credit_limit FROM customers').get().credit_limit,30000);
+ const notes=sql.prepare('SELECT notes FROM credit_analyses ORDER BY rowid DESC LIMIT 1').get().notes;
+ const snapshot=JSON.parse(notes.slice(notes.indexOf('\n')+1));assert.equal(snapshot.input.latestPurchaseCount,1);assert.equal(snapshot.result.limit.availableCount,2);assert.equal(snapshot.result.limit.count,1);assert.match(snapshot.report,/2 disponíveis; 1 mais recentes/);
  sql.close();delete globalThis.__creditDb;
 });

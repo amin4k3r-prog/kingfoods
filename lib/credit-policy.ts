@@ -6,8 +6,8 @@ export const rankNames:Record<Rank,string>={A:'Estruturado',B:'Food Service',C:'
 export type PaidRow={document:string;date:string;delay:number};
 export type PurchaseRow={document:string;purchase:string;date:string;amount:number};
 export type Report<T>={customerId:string;fileName:string;customerLabel:string;rows:T[]};
-export type Input={kind:'new'|'history'|null;restriction:'clear'|'restricted'|null;openingDate:string;otherSupplier:boolean;creditScore:number|null;firstPurchaseDate:string;maxOpenPurchases:number|null;paid:Report<PaidRow>|null;purchases:Report<PurchaseRow>|null};
-export const initialInput:Input={kind:null,restriction:null,openingDate:'',otherSupplier:false,creditScore:null,firstPurchaseDate:'',maxOpenPurchases:null,paid:null,purchases:null};
+export type Input={kind:'new'|'history'|null;restriction:'clear'|'restricted'|null;openingDate:string;otherSupplier:boolean;creditScore:number|null;firstPurchaseDate:string;maxOpenPurchases:number|null;latestPurchaseCount:number|null;paid:Report<PaidRow>|null;purchases:Report<PurchaseRow>|null};
+export const initialInput:Input={kind:null,restriction:null,openingDate:'',otherSupplier:false,creditScore:null,firstPurchaseDate:'',maxOpenPurchases:null,latestPurchaseCount:null,paid:null,purchases:null};
 export type Context={day:string;customerId:string;registrationComplete:boolean;missingRegistration:string[];firstPurchaseDate?:string|null};
 export function validDay(value:string){if(!/^\d{4}-\d{2}-\d{2}$/.test(value))return false;const d=new Date(value+'T12:00:00Z');return Number.isFinite(d.valueOf())&&d.toISOString().slice(0,10)===value;}
 export function completeMonths(from:string,to:string){const [y,m,d]=from.split('-').map(Number),[yy,mm,dd]=to.split('-').map(Number);return (yy-y)*12+mm-m-(dd<d?1:0);}
@@ -35,11 +35,14 @@ export function calculate(raw:Input,c:Context){
  for(const value of [i.openingDate,i.firstPurchaseDate])if(typeof value!=='string'||value&&(!validDay(value)||value>c.day))throw new Error('Informe uma data válida, sem estar no futuro.');
  if(i.creditScore!==null&&(!Number.isFinite(i.creditScore)||i.creditScore<0||i.creditScore>1000))throw new Error('Pontuação de crédito: informe um número de 0 a 1.000.');
  if(i.maxOpenPurchases!==null&&(!Number.isSafeInteger(i.maxOpenPurchases)||i.maxOpenPurchases<0))throw new Error('Quantidade máxima de compras em aberto: informe um inteiro não negativo.');
+ if(i.latestPurchaseCount!==null&&(!Number.isSafeInteger(i.latestPurchaseCount)||i.latestPurchaseCount<1))throw new Error('Compras únicas analisadas: informe um inteiro maior que zero ou deixe vazio para usar todas.');
  const paidRows=checkReport(i.paid,c,'paid'),purchaseRows=checkReport(i.purchases,c,'purchases');
  const start=monthsBefore(c.day,6),groups=new Map<string,{document:string;date:string;amount:number;installments:number}>();
  // Group all installments before applying the purchase-date window.
  for(const row of purchaseRows){const current=groups.get(row.purchase);if(current){current.amount+=row.amount;current.installments++;if(row.date<current.date)current.date=row.date;}else groups.set(row.purchase,{document:row.purchase,date:row.date,amount:row.amount,installments:1});}
- const purchases=[...groups.values()].filter(g=>g.date>=start&&g.date<=c.day).sort((a,b)=>b.date.localeCompare(a.date)||a.document.localeCompare(b.document));
+ const periodPurchases=[...groups.values()].filter(g=>g.date>=start&&g.date<=c.day).sort((a,b)=>b.date.localeCompare(a.date)||a.document.localeCompare(b.document));
+ const availableCount=periodPurchases.length;
+ const purchases=i.latestPurchaseCount===null?periodPurchases:periodPurchases.slice(0,i.latestPurchaseCount);
  const total=purchases.reduce((n,p)=>n+p.amount,0);if(!Number.isSafeInteger(total))throw new Error('Total comprado ultrapassa a precisão monetária suportada.');
  const count=purchases.length,average=count?Math.round(total/count):null;
  // Round the final currency amount only; do not alter the formula by rounding the mean first.
@@ -54,10 +57,10 @@ export function calculate(raw:Input,c:Context){
  const relationshipMonths=firstPurchase?completeMonths(firstPurchase,c.day):null;
  const restriction=i.restriction==='clear'?25:i.restriction==='restricted'?-75:null;
  const credit=i.creditScore===null?null:Math.round(i.creditScore*30/1000);
- const criteria=i.kind==='new'?[{key:'restriction',label:'SPC/Serasa',points:restriction,max:25},{key:'activity',label:'Tempo de atividade',points:activityMonths===null?null:activityPoints(activityMonths),max:15},{key:'supplier',label:'Compra a prazo em outro vendedor',points:i.otherSupplier?10:0,max:10},{key:'registration',label:'Cadastro completo',points:c.registrationComplete?20:0,max:20},{key:'credit',label:'Pontuação de crédito',points:credit,max:30}]:i.kind==='history'?[{key:'punctuality',label:'Pontualidade dos últimos 25 títulos',points:punctuality,max:25},{key:'restriction',label:'SPC/Serasa',points:restriction,max:25},{key:'credit',label:'Pontuação de crédito',points:credit,max:30},{key:'frequency',label:'Frequência de compras',points:i.purchases?frequencyPoints(count):null,max:10},{key:'relationship',label:'Tempo de relacionamento',points:relationshipMonths===null?null:relationshipPoints(relationshipMonths),max:10}]:[];
+ const criteria=i.kind==='new'?[{key:'restriction',label:'SPC/Serasa',points:restriction,max:25},{key:'activity',label:'Tempo de atividade',points:activityMonths===null?null:activityPoints(activityMonths),max:15},{key:'supplier',label:'Compra a prazo em outro vendedor',points:i.otherSupplier?10:0,max:10},{key:'registration',label:'Cadastro completo',points:c.registrationComplete?20:0,max:20},{key:'credit',label:'Pontuação de crédito',points:credit,max:30}]:i.kind==='history'?[{key:'punctuality',label:'Pontualidade dos últimos 25 títulos',points:punctuality,max:25},{key:'restriction',label:'SPC/Serasa',points:restriction,max:25},{key:'credit',label:'Pontuação de crédito',points:credit,max:30},{key:'frequency',label:'Frequência de compras',points:i.purchases?frequencyPoints(availableCount):null,max:10},{key:'relationship',label:'Tempo de relacionamento',points:relationshipMonths===null?null:relationshipPoints(relationshipMonths),max:10}]:[];
  const rankReady=criteria.length>0&&criteria.every(r=>r.points!==null);
  const subtotal=criteria.reduce((n,r)=>n+(r.points??0),0),rank=rankReady?rankFor(subtotal):null;
- return {model:MODEL,criteria,subtotal,totalScore:rankReady?subtotal:null,rank,rankLabel:rank?rankNames[rank]:null,rankReady,activityMonths,relationshipMonths,firstPurchase,firstPurchaseSource:i.firstPurchaseDate?'informada':'primeira data disponível nos registros',punctuality:{analyzed:recent.length,onTime,late,percent:recent.length?onTime/recent.length*100:null,points:punctuality,rows:recent},frequency:{count,points:i.purchases?frequencyPoints(count):null},limit:{count,total,average,maxOpenPurchases:i.maxOpenPurchases,value:limit,start,end:c.day,purchases},nextReview:null};
+ return {model:MODEL,criteria,subtotal,totalScore:rankReady?subtotal:null,rank,rankLabel:rank?rankNames[rank]:null,rankReady,activityMonths,relationshipMonths,firstPurchase,firstPurchaseSource:i.firstPurchaseDate?'informada':'primeira data disponível nos registros',punctuality:{analyzed:recent.length,onTime,late,percent:recent.length?onTime/recent.length*100:null,points:punctuality,rows:recent},frequency:{count:availableCount,points:i.purchases?frequencyPoints(availableCount):null},limit:{count,availableCount,requestedCount:i.latestPurchaseCount,total,average,maxOpenPurchases:i.maxOpenPurchases,value:limit,start,end:c.day,purchases},nextReview:null};
 }
 export type Result=ReturnType<typeof calculate>;
 export type Snapshot={model:string;input:Input;result:Result;report:string;savedAt:string;context:Context};
