@@ -35,3 +35,16 @@ test('zero multiplier is explicit zero, missing is unknown',()=>{const purchases
 test('fractional max purchases and negative money rejected',()=>{assert.throws(()=>calculate({...full,maxOpenPurchases:1.5},c));assert.throws(()=>calculate({...full,purchases:report([buy('x','2026-09-01',-1)])},c))});
 
 test('limit rounds only the final result, not the intermediate mean',()=>{const r=calculate({...full,purchases:report([buy('a','2026-09-01',33),buy('b','2026-09-01',33),buy('c','2026-09-01',34)]),maxOpenPurchases:3},c);assert.equal(r.limit.average,33);assert.equal(r.limit.value,100)});
+
+test('latest N selects grouped purchases by date and preserves six-month rank frequency',()=>{
+ const purchases=report([buy('old','2026-03-01',999999),buy('a','2026-04-01',10000),buy('b','2026-08-01',20000),buy('9-2-2','2026-09-01',30000),buy('9-2-1','2026-09-01',40000)]);
+ const input={...full,kind:'history',purchases,maxOpenPurchases:3};
+ const all=calculate(input,c),one=calculate({...input,latestPurchaseCount:1},c);
+ assert.equal(one.limit.count,1);assert.equal(one.limit.availableCount,3);assert.equal(one.limit.total,70000);assert.equal(one.limit.average,70000);assert.equal(one.limit.value,210000);assert.equal(one.limit.purchases[0].installments,2);
+ assert.deepEqual(one.frequency,all.frequency);assert.deepEqual(one.criteria,all.criteria);
+ const two=calculate({...input,latestPurchaseCount:2},c);assert.equal(two.limit.total,90000);assert.equal(two.limit.value,135000);
+ assert.equal(calculate({...input,latestPurchaseCount:100},c).limit.count,3);
+ const legacy={...input};delete legacy.latestPurchaseCount;assert.deepEqual(calculate(legacy,c),all);
+ assert.equal(calculate({...input,latestPurchaseCount:1,purchases:report([])},c).limit.value,null);
+ for(const n of [0,-1,1.5,Infinity,'2'])assert.throws(()=>calculate({...input,latestPurchaseCount:n},c));
+});
