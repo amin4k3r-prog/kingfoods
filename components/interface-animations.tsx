@@ -19,7 +19,7 @@ export function InterfaceAnimations() {
 
       const reveal = (element: Element) => {
         if (!(element instanceof HTMLElement) || active.has(element)) return;
-        if (element.getAttribute("data-state") !== "open") return;
+        if (element.getAttribute("data-state") !== "open") { active.delete(element); return; }
         active.add(element);
         const overlay = element.matches('[data-slot="dialog-overlay"], [data-slot="alert-dialog-overlay"]');
         animate(element, {
