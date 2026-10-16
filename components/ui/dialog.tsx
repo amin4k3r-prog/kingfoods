@@ -5,6 +5,7 @@ import { XIcon } from "lucide-react"
 import { Dialog as DialogPrimitive } from "radix-ui"
 
 import { cn } from "@/lib/utils"
+import { prepareDialogMotion } from "@/lib/dialog-motion"
 import { Button } from "@/components/ui/button"
 
 function Dialog({
@@ -51,6 +52,7 @@ function DialogContent({
   className,
   children,
   showCloseButton = true,
+  onOpenAutoFocus,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
@@ -65,6 +67,10 @@ function DialogContent({
           className
         )}
         {...props}
+        onOpenAutoFocus={(event) => {
+          prepareDialogMotion(event.currentTarget as HTMLElement);
+          onOpenAutoFocus?.(event);
+        }}
       >
         {children}
         {showCloseButton && (

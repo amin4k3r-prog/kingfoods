@@ -502,21 +502,26 @@ html:not(.dark) .dashboard-metric-card{background:linear-gradient(135deg,#ffffff
   button.primary:hover:not(:disabled), .primary:hover:not(:disabled) {
     box-shadow: 0 9px 24px rgba(117,72,223,.28);
   }
-  [data-slot="dialog-content"][data-state="open"],
-  [data-slot="alert-dialog-content"][data-state="open"] {
-    animation: kingfoods-modal-arrive .44s cubic-bezier(.18,.8,.25,1) both;
+  /* Radix owns focus and lifetime; these keyframes animate the live React form
+     from the opening control, then back to it on close. */
+  [data-slot="dialog-content"][data-state],
+  [data-slot="alert-dialog-content"][data-state] { animation: none; }
+  [data-slot="dialog-content"][data-modal-motion="ready"][data-state="open"],
+  [data-slot="alert-dialog-content"][data-modal-motion="ready"][data-state="open"] {
+    animation: kingfoods-modal-expand .56s cubic-bezier(.2,.8,.2,1) both;
   }
-  [data-slot="dialog-content"][data-state="closed"],
-  [data-slot="alert-dialog-content"][data-state="closed"] {
-    animation: kingfoods-modal-leave .24s ease-in both;
+  [data-slot="dialog-content"][data-modal-motion="ready"][data-state="closed"],
+  [data-slot="alert-dialog-content"][data-modal-motion="ready"][data-state="closed"] {
+    animation: kingfoods-modal-collapse .34s cubic-bezier(.4,0,.7,.2) both;
+    pointer-events: none;
   }
-  @keyframes kingfoods-modal-arrive {
-    from { opacity: 0; scale: .92; filter: blur(5px); }
-    to { opacity: 1; scale: 1; filter: blur(0); }
+  @keyframes kingfoods-modal-expand {
+    from { opacity: .15; transform: translate(var(--modal-x,0px),var(--modal-y,24px)) scale(var(--modal-scale-x,.94),var(--modal-scale-y,.94)); }
+    to { opacity: 1; transform: translate(0,0) scale(1); }
   }
-  @keyframes kingfoods-modal-leave {
-    from { opacity: 1; scale: 1; }
-    to { opacity: 0; scale: .96; }
+  @keyframes kingfoods-modal-collapse {
+    from { opacity: 1; transform: translate(0,0) scale(1); }
+    to { opacity: 0; transform: translate(var(--modal-x,0px),var(--modal-y,24px)) scale(var(--modal-scale-x,.94),var(--modal-scale-y,.94)); }
   }
 }
 @media (prefers-reduced-motion: reduce) {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { rememberDialogOrigin } from "@/lib/dialog-motion";
 
 /**
  * Anime.js feedback for navigation and buttons.
@@ -8,6 +9,11 @@ import { useEffect } from "react";
  * Works on the rendered nodes; it never clones React elements or takes over events.
  */
 export function InterfaceAnimations() {
+  useEffect(() => {
+    document.addEventListener("click", rememberDialogOrigin, true);
+    return () => document.removeEventListener("click", rememberDialogOrigin, true);
+  }, []);
+
   useEffect(() => {
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
 
