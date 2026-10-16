@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { AppearanceProvider } from "./theme";
+import { InterfaceAnimations } from "@/components/interface-animations";
 
 export const metadata: Metadata = {
   title: "King Foods • Gestão Financeira",
@@ -21,7 +22,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="pt-BR" suppressHydrationWarning>
-      <body className="antialiased"><AppearanceProvider>{children}</AppearanceProvider></body>
+      <body className="antialiased"><AppearanceProvider><InterfaceAnimations />{children}</AppearanceProvider></body>
     </html>
   );
 }
