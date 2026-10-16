@@ -504,11 +504,19 @@ html:not(.dark) .dashboard-metric-card{background:linear-gradient(135deg,#ffffff
   }
   [data-slot="dialog-content"][data-state="open"],
   [data-slot="alert-dialog-content"][data-state="open"] {
-    animation: kingfoods-modal-arrive .36s cubic-bezier(.18,.8,.25,1) both;
+    animation: kingfoods-modal-arrive .44s cubic-bezier(.18,.8,.25,1) both;
+  }
+  [data-slot="dialog-content"][data-state="closed"],
+  [data-slot="alert-dialog-content"][data-state="closed"] {
+    animation: kingfoods-modal-leave .24s ease-in both;
   }
   @keyframes kingfoods-modal-arrive {
-    from { opacity: .25; filter: blur(10px); }
-    to { opacity: 1; filter: blur(0); }
+    from { opacity: 0; scale: .92; filter: blur(5px); }
+    to { opacity: 1; scale: 1; filter: blur(0); }
+  }
+  @keyframes kingfoods-modal-leave {
+    from { opacity: 1; scale: 1; }
+    to { opacity: 0; scale: .96; }
   }
 }
 @media (prefers-reduced-motion: reduce) {

@@ -3,7 +3,8 @@
 import { useEffect } from "react";
 
 /**
- * Subtle Anime.js transitions for existing Radix dialogs and navigation.
+ * Anime.js feedback for navigation and buttons.
+ * Dialog enter/exit animations use CSS so Radix can retain closing content.
  * Works on the rendered nodes; it never clones React elements or takes over events.
  */
 export function InterfaceAnimations() {
@@ -11,44 +12,9 @@ export function InterfaceAnimations() {
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
 
     let disposed = false;
-    let observer: MutationObserver | undefined;
-    const active = new WeakSet<Element>();
 
     void import("animejs").then(({ animate }) => {
       if (disposed) return;
-
-      const reveal = (element: Element) => {
-        if (!(element instanceof HTMLElement) || active.has(element)) return;
-        if (element.getAttribute("data-state") !== "open") { active.delete(element); return; }
-        active.add(element);
-        const overlay = element.matches('[data-slot="dialog-overlay"], [data-slot="alert-dialog-overlay"]');
-        animate(element, {
-          opacity: [0, 1],
-          filter: overlay ? ["blur(0px)", "blur(0px)"] : ["blur(12px)", "blur(0px)"],
-          duration: overlay ? 220 : 360,
-          ease: "out(3)",
-        });
-      };
-
-      const scan = (element: Element) => {
-        if (element.matches('[data-slot="dialog-content"], [data-slot="alert-dialog-content"], [data-slot="dialog-overlay"], [data-slot="alert-dialog-overlay"]')) {
-          reveal(element);
-        }
-        element.querySelectorAll('[data-slot="dialog-content"], [data-slot="alert-dialog-content"], [data-slot="dialog-overlay"], [data-slot="alert-dialog-overlay"]').forEach(reveal);
-      };
-
-      scan(document.body);
-      observer = new MutationObserver(records => {
-        for (const record of records) {
-          if (record.type === "attributes" && record.target instanceof Element) {
-            scan(record.target);
-          }
-          for (const node of record.addedNodes) {
-            if (node instanceof Element) scan(node);
-          }
-        }
-      });
-      observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-state"] });
 
       // Visual feedback only. Click, submit, navigation and form handlers remain React-owned.
       const animateWorkspace = () => {
@@ -105,7 +71,6 @@ export function InterfaceAnimations() {
     let cleanupHandlers = () => {};
     return () => {
       disposed = true;
-      observer?.disconnect();
       cleanupHandlers();
     };
   }, []);
