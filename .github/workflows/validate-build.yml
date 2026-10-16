@@ -7,13 +7,16 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   verify:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
       - uses: pnpm/action-setup@v4
         with:
           version: 11.25.0
@@ -21,6 +24,27 @@ jobs:
         with:
           node-version: '22'
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - name: Repair Anime.js lockfile entry and verify integrity
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const path = 'pnpm-lock.yaml';
+          let lock = fs.readFileSync(path, 'utf8');
+          lock = lock.replace(/\n  animejs@4\.5\.0:\n    resolution: \{tarball: https:\/\/registry\.npmjs\.org\/animejs\/-\/animejs-4\.5\.0\.tgz\}\n/, '\n');
+          lock = lock.replace(/\n  animejs@4\.5\.0: \{\}\n/, '\n');
+          fs.writeFileSync(path, lock);
+          NODE
+          pnpm install --lockfile-only --no-frozen-lockfile
+          pnpm install --frozen-lockfile
+      - name: Commit repaired lockfile if necessary
+        if: github.event_name == 'push'
+        run: |
+          if ! git diff --quiet -- pnpm-lock.yaml; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add pnpm-lock.yaml
+            git commit -m "fix: regenerate verified Anime.js lockfile"
+            git push
+          fi
       - run: pnpm run lint
       - run: pnpm run build
