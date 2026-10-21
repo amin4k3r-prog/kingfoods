@@ -27,7 +27,6 @@ export default function LoginScreen() {
 
   useEffect(() => {
     const controller = new AbortController();
-    setError('');
     fetch('/api/auth', {cache: 'no-store', signal: controller.signal})
       .then(readApiResponse<AuthStatus>)
       .then(data => {
@@ -132,7 +131,7 @@ export default function LoginScreen() {
           {error && <p ref={errorNode} role="alert" tabIndex={-1} className="login-error">{error}</p>}
           {notice && <p role="status" className="login-notice">{notice}</p>}
           {setup === null && !error && <p role="status" className="loading-status">Preparando seu acesso…</p>}
-          {setup === null && error && <button type="button" className="retry" onClick={() => setStatusAttempt(value => value + 1)}>Tentar novamente</button>}
+          {setup === null && error && <button type="button" className="retry" onClick={() => {setError(''); setStatusAttempt(value => value + 1);}}>Tentar novamente</button>}
           <button className={`submit reveal${busy ? ' is-loading' : ''}`} type="submit" disabled={busy || setup === null || (setup && !setupAllowed)}><span>{busy ? 'Aguarde…' : setup ? 'Criar administrador' : 'Entrar no financeiro'}</span>{busy ? <span className="spinner" aria-hidden="true" /> : <ArrowRight aria-hidden="true" />}</button>
           <div className="secure-note reveal"><ShieldCheck aria-hidden="true" />Acesso restrito à equipe King Foods</div>
         </form>
