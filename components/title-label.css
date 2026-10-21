@@ -1,0 +1,13 @@
+.title-label{display:inline-flex;align-items:center;gap:5px;max-width:100%;padding:4px 8px;border:1px solid currentColor;border-radius:6px;font-size:11px;font-weight:700;line-height:1.35;vertical-align:middle;white-space:normal;text-align:left;overflow-wrap:anywhere}
+.title-label svg{flex-shrink:0}.title-label-green{color:#176439;background:#e7f7ec}.title-label-yellow{color:#755500;background:#fff3c4}.title-label-red{color:#a32132;background:#ffe7eb}
+.dark .title-label-green{color:#9ce3b5;background:#173c29}.dark .title-label-yellow{color:#f6d875;background:#423710}.dark .title-label-red{color:#ffafbb;background:#4b2029}
+.due-client .title-label{margin-top:6px}.due-row-actions{flex-wrap:wrap}
+.title-label-edit{display:inline-flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;padding:7px 10px;border:1px solid var(--border);border-radius:7px;background:var(--background);color:var(--foreground);font-size:12px}
+.title-label-edit:focus-visible{outline:2px solid var(--foreground);outline-offset:3px}
+.title-label-detail{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 12px}.card>.title-label-edit{margin:8px 14px}.card-body>.title-label{margin-top:8px}
+.title-label-dialog form{display:flex;flex-direction:column;gap:14px}.title-label-dialog form>label{font-weight:600;font-size:13px}.title-label-dialog #title-label-text{width:100%;margin:0}
+.title-label-colors{margin:0;padding:0;border:0}.title-label-colors legend{margin-bottom:9px;font-weight:600;font-size:13px}.title-label-colors>div{display:flex;gap:8px;flex-wrap:wrap}
+.title-label-dialog .title-label-choice{display:flex;flex-direction:row;align-items:center;gap:7px;flex:1;min-width:100px;padding:10px;border:1px solid transparent;border-radius:8px;cursor:pointer;font-size:12px;font-weight:650}
+.title-label-choice:has(input:checked){border-color:currentColor;box-shadow:0 0 0 1px currentColor}.title-label-dialog .title-label-choice input{width:16px;height:16px;margin:0;padding:0;accent-color:currentColor}
+.title-label-preview{display:flex;align-items:flex-start;flex-direction:column;gap:6px}.title-label-preview>span{font-size:11px;color:var(--muted-foreground)}
+.title-label-actions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin-top:8px}.title-label-actions button{display:inline-flex;align-items:center;gap:6px}.title-label-actions .title-label-remove{color:#c33c4f;margin-right:auto}

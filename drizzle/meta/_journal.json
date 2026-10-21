@@ -50,6 +50,13 @@
       "when": 1790344883021,
       "tag": "0006_red_ricochet",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1792603562227,
+      "tag": "0007_persistent_title_labels",
+      "breakpoints": true
     }
   ]
 }

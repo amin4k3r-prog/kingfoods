@@ -23,6 +23,7 @@ import {
   Users,
   Settings,
   LogOut,
+  Tag,
 } from "lucide-react";
 import {
   Dialog,
@@ -66,6 +67,8 @@ import {
 } from "@/lib/csv-import";
 import { TITLE_EVENT_OPTIONS } from "@/lib/policy";
 import { columnDays, inDayColumn } from "@/lib/columns";
+import { TitleLabelBadge, TitleLabelDialog } from "@/components/title-label";
+import { titleDocumentKey, type TitleLabel } from "@/lib/title-labels";
 import { DueBands } from "@/components/due-bands";
 import { DashboardMetrics } from "@/components/dashboard-metrics";
 import type {MetricPoint} from '@/lib/metric-history';
@@ -152,6 +155,7 @@ export default function Home({user}:{user:AuthUser}) {
   const [importLookupBusy,setImportLookupBusy]=useState(false);
   const importLookupVersion=useRef(0);
   const [view, setView] = useState("tasks");
+  const [labelTarget,setLabelTarget]=useState<Card|null>(null);
   const [cards, setCards] = useState<Card[]>([]),
     [customers, setCustomers] = useState<Customer[]>([]),
     [analysisOverdue, setAnalysisOverdue] = useState(0),
@@ -276,6 +280,18 @@ export default function Home({user}:{user:AuthUser}) {
     );
     setPending([]);
   };
+  function labelSaved(document: string, label: TitleLabel | null) {
+    const update = (card: Card): Card => card.kind === 'title' && card.document && titleDocumentKey(card.document) === document
+      ? { ...card, label } : card;
+    setCards(current => current.map(update));
+    setEdit(current => current ? update(current) : null);
+    toast.success(label ? 'Marcação salva' : 'Marcação removida');
+  }
+  function labelButton(card: Card) {
+    return card.kind === 'title' && card.document ? <button type="button" className="title-label-edit" aria-label={`${card.label ? "Editar" : "Adicionar"} marcação do título ${card.document}`} onClick={() => setLabelTarget(card)}>
+      <Tag size={14} />{card.label ? 'Editar marcação' : 'Adicionar marcação'}
+    </button> : null;
+  }
   async function mark(c: Card) {
     try {
       await api({ action: "paid", id: c.id, paid: c.paid ? 0 : 1 });
@@ -464,7 +480,7 @@ export default function Home({user}:{user:AuthUser}) {
         : daysLate(c.due, now) > 0
           ? "vencido"
           : "aberto";
-    return `${c.document ?? c.title} ${customer?.customer_code ?? ""} ${customer?.name ?? c.customer ?? ""} ${customer?.tax_id ?? ""} ${customer?.tax_id?.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5") ?? ""} ${status} ${due} ${c.due}`
+    return `${c.document ?? c.title} ${c.label?.text ?? ""} ${customer?.customer_code ?? ""} ${customer?.name ?? c.customer ?? ""} ${customer?.tax_id ?? ""} ${customer?.tax_id?.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5") ?? ""} ${status} ${due} ${c.due}`
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "")
       .toLocaleLowerCase("pt-BR")
@@ -544,7 +560,7 @@ export default function Home({user}:{user:AuthUser}) {
               </span>
             </div>
           )}
-          {c.notes && <p>{c.notes}</p>}
+          <TitleLabelBadge label={c.label}/>{c.notes && <p>{c.notes}</p>}
           {c.kind === "title" && (
             <strong className="amount">
               {money(c.amount)}
@@ -561,6 +577,7 @@ export default function Home({user}:{user:AuthUser}) {
             </span>
           </div>
         </button>
+        {labelButton(c)}
         <button
           className={`pay ${c.paid ? "done" : ""} ${!c.paid && c.kind === "title" ? "payment-action" : ""}`}
           onClick={() => mark(c)}
@@ -703,7 +720,7 @@ export default function Home({user}:{user:AuthUser}) {
               )}
               <TabsContent value="tasks">
                 <p className="drag-instructions">Expanda uma faixa para consultar seus títulos. Os vencimentos avançam automaticamente conforme as regras atuais.</p>
-                <DueBands columns={kanbanColumns} customers={customers} files={files} day={now} onOpen={open} onMark={mark} onAdd={day=>open(undefined,day)}/>
+                <DueBands columns={kanbanColumns} customers={customers} files={files} day={now} onOpen={open} onMark={mark} onLabel={setLabelTarget} onAdd={day=>open(undefined,day)}/>
               </TabsContent>
               <TabsContent value="customers">
                 {view === "customers" && <CustomerWallet
@@ -748,6 +765,7 @@ export default function Home({user}:{user:AuthUser}) {
                         <article className="card archived-card" key={c.id}>
                           <span className="tag">Histórico</span>
                           <h4>Título #{c.document || c.title}</h4>
+                          <TitleLabelBadge label={c.label}/>{labelButton(c)}
                           <div className="imported-details">
                             <span>
                               <b>Cliente:</b>{" "}
@@ -1049,6 +1067,10 @@ export default function Home({user}:{user:AuthUser}) {
           <DialogDescription>
             Notas, vencimento e arquivos. Tudo no mesmo lugar.
           </DialogDescription>
+          {edit?.id && edit.kind === 'title' && (() => {
+            const saved = cards.find(card => card.id === edit.id);
+            return saved ? <div className="title-label-detail"><TitleLabelBadge label={saved.label}/>{labelButton(saved)}</div> : null;
+          })()}
           {edit && (
             <form onSubmit={save}>
               <label>
@@ -1305,7 +1327,7 @@ export default function Home({user}:{user:AuthUser}) {
           <AlertDialogTitle>Excluir todos os títulos?</AlertDialogTitle>
           <AlertDialogDescription>
             Todos os títulos financeiros, históricos e anexos vinculados serão
-            excluídos. As tarefas e os clientes serão preservados. Esta ação não
+            excluídos. As marcações por número do título, as tarefas e os clientes serão preservados. Esta ação não
             pode ser desfeita.
           </AlertDialogDescription>
           <AlertDialogFooter>
@@ -1325,7 +1347,7 @@ export default function Home({user}:{user:AuthUser}) {
         <AlertDialogContent>
           <AlertDialogTitle>Excluir este cartão?</AlertDialogTitle>
           <AlertDialogDescription>
-            O cartão e todos os seus arquivos serão removidos. Esta ação não
+            O cartão e todos os seus arquivos serão removidos. A marcação do título será preservada para futuras importações. Esta ação não
             pode ser desfeita.
           </AlertDialogDescription>
           <AlertDialogFooter>
@@ -1347,6 +1369,7 @@ export default function Home({user}:{user:AuthUser}) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      {labelTarget && <TitleLabelDialog key={labelTarget.id} card={labelTarget} onClose={() => setLabelTarget(null)} onSaved={labelSaved}/>}
     </div>
   );
 }
